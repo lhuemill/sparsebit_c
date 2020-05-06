@@ -564,9 +564,7 @@ static void node_delete(sb_t *sb, node_t *node)
 
 void sb_pdynstr_free(sb_pdynstr_t pdynstr)
 {
-
-
-
+	free(pdynstr);
 }
 
 // Returns NULL on sucess, otherwise returns a pointer to a dynamically
