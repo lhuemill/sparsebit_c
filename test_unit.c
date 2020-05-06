@@ -31,6 +31,14 @@ void test_create_delete(void)
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
 
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
 	sb_delete(sb);
 }
 
@@ -66,6 +74,14 @@ void test_set(void)
 	CU_ASSERT_FALSE(!sb_iscleared(sb, 9));
 	CU_ASSERT_FALSE(sb_isset(sb, 10));
 	CU_ASSERT_FALSE(!sb_iscleared(sb, 10));
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
 
 	sb_delete(sb);
 }
@@ -123,6 +139,14 @@ void test_clear(void)
 	CU_ASSERT_FALSE(sb_isset(sb, 12));
 	CU_ASSERT_FALSE(!sb_iscleared(sb, 12));
 
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
 	sb_delete(sb);
 }
 
@@ -153,6 +177,14 @@ void test_multinode(void)
 		}
 	}
 
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
 	sb_delete(sb);
 }
 
@@ -181,6 +213,14 @@ void test_adjacentnode(void)
 			CU_ASSERT_TRUE(sb_isset(sb, idx));
 			CU_ASSERT_FALSE(sb_iscleared(sb, idx));
 		}
+	}
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
 	}
 
 	sb_delete(sb);
@@ -225,6 +265,14 @@ void test_clear_two_nodes(void)
 			CU_ASSERT_TRUE(sb_isset(sb, idx));
 			CU_ASSERT_FALSE(sb_iscleared(sb, idx));
 		}
+	}
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
 	}
 
 	sb_delete(sb);
@@ -289,6 +337,14 @@ void test_first_next_set(void)
 		}
 	}
 
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
 	sb_delete(sb);
 }
 
@@ -345,6 +401,14 @@ void test_first_next_cleared(void)
 		}
 	}
 
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
 	sb_delete(sb);
 }
 
@@ -388,11 +452,11 @@ int main(void)
 	any_failed = (CU_get_number_of_tests_failed()) ? true : false;
 
 	CU_cleanup_registry();
-  cu_error_code = CU_get_error();
-  if (cu_error_code) {
-    return cu_error_code;
-  }
+	cu_error_code = CU_get_error();
+	if (cu_error_code) {
+		return cu_error_code;
+	}
 
-  return (any_failed) ? 1 : 0;
+	return (any_failed) ? 1 : 0;
 }
 
