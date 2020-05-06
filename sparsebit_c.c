@@ -16,9 +16,6 @@
 /* TODO: Work-In-Progress
  *   Appears to be functionally correct (e.g. Passes all smoke tests).
  *   Following near-term improvements are anticipated:
- *     + Use a semi-balanced binary-tree (e.g. Red-Black Binary-Tree)
- *       instead of a binary-tree, with no automated balancing.
- *
  *     + Implement node set_after member, which allows a single node to
  *       describe any number of contigous set bits after the bits
  *       describe by the mask.
@@ -54,13 +51,17 @@ struct sb {
 	sb_num_t num_set;
 };
 
+enum node_color {
+	BLACK = false,
+	RED = true,
+};
 typedef uint64_t mask_t;
 #define NUM_MASK_BITS (sizeof(mask_t) * BITS_PER_BYTE)
 struct node {
 	sb_idx_t idx_start;  // Index of first bit in mask.
 	mask_t mask;
 	sb_num_t set_after;  // Number of contiguosly set bits after bits in mask.
-	bool color;
+	enum node_color color;
 	node_t *parent;
 	node_t *left;
 	node_t *right;
@@ -71,12 +72,28 @@ static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx);
 static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx);
 static bool node_supports_idx(node_t *node, sb_idx_t idx);
 static sb_num_t node_num_set(node_t *node);
+static int node_cmp(node_t *node1, node_t *node2);
+static int node_cmp_idx(node_t *node, sb_idx_t idx);
+static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent);
+
+static bool node_is_bud(node_t *node);
+static unsigned int node_depth(sb_t *sb, node_t *node);
+static unsigned int node_depth_black(node_t *node);
+static node_t *node_sibling(node_t *node);
+static node_t *node_grandparent(node_t *node);
+static node_t *node_uncle(node_t *node);
 static node_t *node_minimum(node_t *node);
 static node_t *node_maximum(node_t *node);
 static node_t *node_next(node_t *node);
 static node_t *node_prev(node_t *node);
+static void node_rotate_left(sb_t *sb, node_t *x);
+static void node_rotate_right(sb_t *sb, node_t *x);
 static void node_transplant(sb_t *sb, node_t *u, node_t *v);
+static void node_insert(sb_t *sb, node_t *parent, node_t *node);
+static void node_insert_fixup(sb_t *sb, node_t *node);
 static void node_delete(sb_t *sb, node_t *node);
+static void node_delete_fixup(sb_t *sb, node_t *node);
+
 static sb_pdynstr_t dyn_sprintf(const char *format, ...);
 
 sb_t *sb_create(void)
@@ -358,7 +375,11 @@ static node_t *node_find(sb_t *sb, sb_idx_t idx)
 
 	node = sb->root;
 	while ((node != NULL) && (!node_supports_idx(node, idx))) {
-		if (idx < node->idx_start) {
+		int cmp_rv = node_cmp_idx(node, idx);
+
+		assert(cmp_rv != 0);  // Only in this loop when node doesn't support idx,
+		                      // so why does node->idx_start == idx?
+		if (cmp_rv > 0) {
 			node = node->left;
 		} else {
 			node = node->right;
@@ -374,7 +395,11 @@ static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx)
 
 	node = sb->root;
 	while ((node != NULL) && (!node_supports_idx(node, idx))) {
-		if (idx < node->idx_start) {
+		int cmp_rv = node_cmp_idx(node, idx);
+
+		assert(cmp_rv != 0);  // Only in this loop when node doesn't support idx,
+		                      // so why does node->idx_start == idx?
+		if (cmp_rv > 0) {
 			if (node->left == NULL) {
 				return node;
 			}
@@ -397,11 +422,11 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 	node_t *node;
 
 	// Create root node, if it doesn't already exist.
-	if (!sb->root) {
+	if (sb->root == NULL) {
 		node = malloc(sizeof(node_t));
 		MEMCLEAR(node, sizeof(*node));
 		node->idx_start = idx - (idx % NUM_MASK_BITS);
-		sb->root = node;
+		node_insert(sb, NULL, node);
 
 		return node;
 	}
@@ -419,8 +444,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			if (child != NULL) {
 				MEMCLEAR(child, sizeof(*child));
 				child->idx_start = idx - (idx % NUM_MASK_BITS);
-				child->parent = parent;
-				parent->left = child;
+				node_insert(sb, parent, child);
 			}
 
 			assert((child == NULL) || node_supports_idx(child, idx));
@@ -436,8 +460,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			if (child != NULL) {
 				MEMCLEAR(child, sizeof(*child));
 				child->idx_start = idx - (idx % NUM_MASK_BITS);
-				child->parent = parent;
-				parent->right = child;
+				node_insert(sb, parent, child);
 			}
 
 			assert((child == NULL) || node_supports_idx(child, idx));
@@ -471,6 +494,101 @@ static sb_num_t node_num_set(node_t *node)
 	}
 
 	return num;
+}
+
+static int node_cmp(node_t *node1, node_t *node2)
+{
+	if (node1->idx_start < node2->idx_start) {
+		return -1;
+	} else if (node1->idx_start > node2->idx_start) {
+		return 1;
+	}
+
+	assert(node1->idx_start == node2->idx_start);
+	return 0;
+}
+
+static int node_cmp_idx(node_t *node, sb_idx_t idx)
+{
+	if (node->idx_start < idx) {
+		return -1;
+	} else if (node->idx_start > idx) {
+		return 1;
+	}
+
+	assert(node->idx_start == idx);
+	return 0;
+}
+
+// Returns true if nodes left or right pointer doesn't point to another
+// node.
+static bool node_is_bud(node_t *node)
+{
+	if ((node->left == NULL) || (node->right == NULL)) {
+		return true;
+	}
+
+	return false;
+}
+
+static unsigned int node_depth(sb_t *sb, node_t *node)
+{
+	unsigned int depth = 0;
+
+	node_t *p = node;
+	while (p->parent) {
+		p = p->parent;
+		depth++;
+	}
+
+	return depth;
+}
+
+static unsigned int node_depth_black(node_t *node)
+{
+	unsigned int depth_black = 0;
+
+	while (node != NULL) {
+		if (node->color == BLACK) {
+			depth_black++;
+		}
+
+		node = node->parent;
+	}
+
+	return depth_black;
+}
+
+static node_t *node_sibling(node_t *node)
+{
+	if (node->parent) {
+		return (node == node->parent->left)
+			? node->parent->right : node->parent->left;
+	}
+
+	return NULL;
+}
+
+static node_t *node_grandparent(node_t *node)
+{
+	if (node->parent && node->parent->parent) {
+		return node->parent->parent;
+	}
+
+	return NULL;
+}
+
+static node_t *node_uncle(node_t *node)
+{
+	node_t *grandparent = node_grandparent(node);
+
+	if (grandparent) {
+		return (grandparent->left == node->parent)
+			? grandparent->right
+			: grandparent->left;
+	}
+
+	return NULL;
 }
 
 static node_t *node_minimum(node_t *node)
@@ -521,6 +639,68 @@ static node_t *node_prev(node_t *node)
 	return y;
 }
 
+//              |                               |             
+//            +---+                           +---+               
+//            | y |                           | x |               
+//            +---+                           +---+               
+//           /     \                         /     \        
+//      +---+       c  <-- rotate_left(x)   a       +---+   
+//      | x |                                       | y |   
+//      +---+                                       +---+   
+//     /     \                                     /     \  
+//    a       b                                   b       c 
+//                                                          
+static void node_rotate_left(sb_t *sb, node_t *x)
+{
+	node_t *y = x->right;
+
+	x->right = y->left;
+	if (y->left != NULL) {
+		y->left->parent = x;
+	}
+	y->parent = x->parent;
+	if (x->parent == NULL) {
+		sb->root = y;
+	} else if (x == x->parent->left) {
+		x->parent->left = y;
+	} else {
+		x->parent->right = y;
+	}
+	y->left = x;
+	x->parent = y;
+}
+
+//              |                               |             
+//            +---+                           +---+               
+//            | y |                           | x |               
+//            +---+                           +---+               
+//           /     \                         /     \        
+//      +---+       c  rotate_right(y) -->  a       +---+   
+//      | x |                                       | y |   
+//      +---+                                       +---+   
+//     /     \                                     /     \  
+//    a       b                                   b       c 
+//                                                          
+static void node_rotate_right(sb_t *sb, node_t *y)
+{
+	node_t *x = y->left;
+
+	y->left = x->right;
+	if (x->right != NULL) {
+		x->right->parent = y;
+	}
+	x->parent = y->parent;
+	if (y->parent == NULL) {
+		sb->root = x;
+	} else if (y == y->parent->right) {
+		y->parent->right = x;
+	} else {
+		y->parent->left = x;
+	}
+	x->right = y;
+	y->parent = x;
+}
+
 static void node_transplant(sb_t *sb, node_t *u, node_t *v)
 {
 	if (u->parent == NULL) {
@@ -537,19 +717,117 @@ static void node_transplant(sb_t *sb, node_t *u, node_t *v)
 	return;
 }
 
+static void node_insert(sb_t *sb, node_t *parent, node_t *node)
+{
+	node->parent = parent;
+	if (parent == NULL) {
+		assert(sb->root == NULL);
+		node->color = BLACK;
+		sb->root = node;
+	} else {
+		int cmp_rv = node_cmp(node, parent);
+		if (cmp_rv < 0) {
+			assert(parent->left == NULL);
+			parent->left = node;
+		} else if (cmp_rv > 0) {
+			assert(parent->right == NULL);
+			parent->right = node;
+		} else {
+			assert(false);  // Node to be inserted compares equal to parent.
+		}
+	}
+	node->left = NULL;
+	node->right = NULL;
+	node->color = RED;
+	node_insert_fixup(sb, node);
+}
+
+static void node_insert_fixup(sb_t *sb, node_t *node)
+{
+	assert(node->color == RED);  // Newly inserted nodes are always colored RED.
+	while (node->parent && node_grandparent(node)
+		&& (node->parent->color == RED)) {
+		node_t *grandparent = node_grandparent(node);
+
+		// Both node and node's parent are RED, which is a violation
+		// of RED nodes only have BLACK children.
+		assert(node->color == RED);
+		assert(node->parent->color == RED);
+		if (node->parent == grandparent->left) {
+			node_t *uncle = grandparent->right;
+			if (uncle && uncle->color == RED) {  // Case 1 - Parent and uncle are
+			                                     //          both red.
+				node->parent->color = BLACK;
+				uncle->color = BLACK;
+				node->parent->parent->color = RED;
+				node = node->parent->parent;
+			} else {
+				if (node == node->parent->right) {  // Case 2 - Parent is red,
+				                                    //          uncle is black.
+					node = node->parent;
+					node_rotate_left(sb, node);
+				}
+				node->parent->color = BLACK;  // Case 3 - Node is left child,
+				                              //          uncle is black.
+				node->parent->parent->color = RED;
+				node_rotate_right(sb, node->parent->parent);
+			}
+		} else {
+			node_t *uncle = grandparent->left;
+			if (uncle && uncle->color == RED) {  // Case 1
+				node->parent->color = BLACK;
+				uncle->color = BLACK;
+				node->parent->parent->color = RED;
+				node = node->parent->parent;
+			} else {
+				if (node == node->parent->left) {  // Case 2
+					node = node->parent;
+					node_rotate_right(sb, node);
+				}
+				node->parent->color = BLACK;  // Case 3
+				node->parent->parent->color = RED;
+				node_rotate_left(sb, node->parent->parent);
+			}
+		}
+	}
+	sb->root->color = BLACK;
+}
+
 static void node_delete(sb_t *sb, node_t *node)
 {
-	// Should only delete nodes that represent no set bits.
-	assert(node->mask == 0);
+	node_t *y = node;  // Points to node either removed or moved.
+	node_t *x;
+	node_t sentinel;
 
+	MEMCLEAR(&sentinel, sizeof(sentinel));
+	assert(sentinel.color == BLACK);
+
+	enum node_color y_orig_color = y->color;
 	if (node->left == NULL) {
+		if (node->right == NULL) {
+			sentinel.parent = node;
+			node->right = &sentinel;
+		}
+		x = node->right;
 		node_transplant(sb, node, node->right);
 	} else if (node->right == NULL) {
+		if (node->left == NULL) {
+			sentinel.parent = node;
+			node->left = &sentinel;
+		}
+		x = node->left;
 		node_transplant(sb, node, node->left);
 	} else {
-		node_t *y = node_minimum(node->right);
-
-		if (y->parent != node) {
+		y = node_minimum(node->right);
+		y_orig_color = y->color;
+		if (y->right == NULL) {
+			sentinel.parent = y->parent;
+			y->right = &sentinel;
+		}
+		x = y->right;
+		if (y->parent == node) {
+			x->parent = y;
+		} else {
 			node_transplant(sb, y, y->right);
 			y->right = node->right;
 			y->right->parent = y;
@@ -557,14 +835,90 @@ static void node_delete(sb_t *sb, node_t *node)
 		node_transplant(sb, node, y);
 		y->left = node->left;
 		y->left->parent = y;
+		y->color = node->color;
+	}
+
+	if (y_orig_color == BLACK) {
+		node_delete_fixup(sb, x);
+	}
+
+	// If node points to sentinel, set its pointer to NULL, before the
+	// sentinel variable goes out-of-scope.
+	if (sentinel.parent != NULL) {
+		if (sentinel.parent->left == &sentinel) {
+			sentinel.parent->left = NULL;
+		}
+		if (sentinel.parent->right == &sentinel) {
+			sentinel.parent->right = NULL;
+		}
+	}
+	if (sb->root == &sentinel) {
+		sb->root = NULL;
 	}
 
 	free(node);
 }
 
-void sb_pdynstr_free(sb_pdynstr_t pdynstr)
+static void node_delete_fixup(sb_t *sb, node_t *node)
 {
-	free(pdynstr);
+	while ((node != sb->root) && (node->color == BLACK)) {
+		if (node == node->parent->left) {
+			node_t *w = node->parent->right;
+			if (w->color == RED) {
+				w->color = BLACK;
+				node->parent->color = RED;
+				node_rotate_left(sb, node->parent);
+				w = node->parent->right;
+			}
+			if (((w->left == NULL) || (w->left->color == BLACK))
+				&& ((w->right == NULL) || (w->right->color == BLACK))) {
+				w->color = RED;
+				node = node->parent;
+			} else {
+				if ((w->right == NULL) || (w->right->color == BLACK)) {
+					w->left->color = BLACK;
+					w->color = RED;
+					node_rotate_right(sb, w);
+					w = node->parent->right;
+				}
+				w->color = node->parent->color;
+				node->parent->color = BLACK;
+				w->right->color = BLACK;
+				node_rotate_left(sb, node->parent);
+				node = sb->root;
+			}
+		} else {
+			node_t *w = node->parent->left;
+			if (w->color == RED) {
+				w->color = BLACK;
+				node->parent->color = RED;
+				node_rotate_right(sb, node->parent);
+				// node_rotate_right(sb, node);
+				w = node->parent->left;
+			}
+			if (((w->right == NULL) || (w->right->color == BLACK))
+				&& ((w->left == NULL) || (w->left->color == BLACK))) {
+				w->color = RED;
+				node = node->parent;
+			} else {
+				if ((w->left == NULL) || (w->left->color == BLACK)) {
+					w->right->color = BLACK;
+					w->color = RED;
+					node_rotate_left(sb, w);
+					// node_rotate_left(sb, w->parent);
+					w = node->parent->left;
+				}
+				w->color = node->parent->color;
+				node->parent->color = BLACK;
+				w->left->color = BLACK;
+				node_rotate_right(sb, node->parent);
+				// node_rotate_right(sb, node);
+				node = sb->root;
+			}
+		}
+	}
+
+	node->color = BLACK;
 }
 
 // Returns NULL on sucess, otherwise returns a pointer to a dynamically
@@ -572,11 +926,34 @@ void sb_pdynstr_free(sb_pdynstr_t pdynstr)
 sb_pdynstr_t sb_validate(sb_t* sb)
 {
 	sb_num_t sum_pernode_set = 0;
+	node_t *highest_bud = NULL;
+	node_t *lowest_bud = NULL;
+	node_t *first_bud = NULL;
+
+	// When it exists, the root node should be BLACK.
+	if ((sb->root) && (sb->root->color != BLACK)) {
+		return dyn_sprintf("Root node (%p) color is not BLACK",
+			sb->root->color);
+	}
 
 	// For each node.
 	if (sb->root) {
 		for (node_t *node = node_minimum(sb->root); node != NULL;
 			node = node_next(node)) {
+			// Is this a higher bud node?  Node where there is no child
+			// to the left or right.
+			if (node_is_bud(node) && ((highest_bud == NULL)
+				|| (node_depth(sb, node) < node_depth(sb, highest_bud))) ) {
+				highest_bud = node;
+			}
+
+			// Is this a lower bud node?
+			if (node_is_bud(node) && ((lowest_bud == NULL)
+				|| (node_depth(sb, node) > node_depth(sb, lowest_bud))) ) {
+				lowest_bud = node;
+			}
+
+			// Add to total sum of bits set, the number of bits set in this node.
 			sum_pernode_set += node_num_set(node);
 
 			// Nodes should only exist if they represent at least 1 set bit.
@@ -585,8 +962,55 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 					"  node: %p mask: %#llx",
 					node, node->mask);
 			}
+
+			// Direct children of red nodes should not also be red.
+			if (node->color == RED) {
+				if (node->left && (node->left->color == RED)) {
+					return dyn_sprintf("Red node: %p has a left child node: %p\n"
+						"that is also Red.", node, node->left);
+				}
+				if (node->right && (node->right->color == RED)) {
+					return dyn_sprintf("Red node: %p has a right child "
+						"node: %p that is also Red.", node, node->right);
+				}
+			}
+
+			// All nodes with any leaves (left == NULL or right == NULL)
+			// should have the same number of black nodes on path to
+			// the root node.
+			if (node_is_bud(node)) {
+				unsigned int this_depth_black = node_depth_black(node);
+				if (first_bud != NULL) {
+					if (this_depth_black != node_depth_black(first_bud)) {
+						return dyn_sprintf("Bud node: %p has a black depth of %u,\n"
+							"  which is different from bud node: %p black depth of %u",
+							node, this_depth_black, first_bud, node_depth_black(first_bud));
+					}
+				} else {
+					first_bud = node;
+				}
+			}
 		}
 	}
+
+	// Is the tree sufficiently balanced?  Implementation uses a Red-Black
+	// binary-tree.  For such a binary-tree the lowest leaf should be no
+	// more than twice the depth of the highest leaf.  Only kepth track of
+	// the highest and lowest bud nodes, bud nodes have a leaf or leaves,
+	// so need to add 1 to get the depth of the leaf attached to a bud node.
+	if (highest_bud) {
+		if ((node_depth(sb, lowest_bud) + 1)
+			> (2 * (node_depth(sb, highest_bud) + 1))) {
+			return dyn_sprintf("lowest_node: %p at more than twice the\n"
+				"  depth of the highest_bud: %p\n"
+				"  lowest_depth: %u hightest_depth: %u",
+				lowest_bud, highest_bud, node_depth(sb, lowest_bud) + 1,
+				node_depth(sb, highest_bud) + 1);
+		}
+	}
+
+	// Is the sum of bits set across all the nodes equal to the total
+	// maintained in the sparsebit structure.
 	if (sum_pernode_set != sb->num_set) {
 		return dyn_sprintf("sb->num_set: %llu not equal to"
 			"sum_pernode_set: %llu", sb->num_set, sum_pernode_set);
@@ -599,21 +1023,46 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 // the current state of the sparsebit array pointed to by sb.
 sb_pdynstr_t sb_dump(sb_t* sb)
 {
-	sb_pdynstr_t s = dyn_sprintf("sb: %p\n"
-		"  root: %p num_set: %llu\n", sb, sb->root, sb->num_set);
+	sb_pdynstr_t rv_str = dyn_sprintf("sb: %p\n"
+		"root: %p num_set: %llu\n", sb, sb->root, sb->num_set);
 	if (sb->root) {
-		for (node_t *node = node_minimum(sb->root); node != NULL;
-			node = node_next(node)) {
-			sb_pdynstr_t prev = s;
-			s = dyn_sprintf("%s  node: %p idx_start: %#llx mask: %#llx\n"
-				"    parent: %p left: %p right: %p\n",
-				prev, node, node->idx_start, node->mask,
-				node->parent, node->left, node->right);
-			free(prev);
-		}
+		sb_pdynstr_t tmp_str = dump_subtree(sb, sb->root, 2);
+		rv_str = dyn_sprintf("%s%s", rv_str, tmp_str);
+		free(tmp_str);
 	}
 
-	return s;
+	return rv_str;
+}
+
+static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
+{
+	sb_pdynstr_t rv_str;
+
+	sb_pdynstr_t node_str = dyn_sprintf(
+		"%*snode: %p idx_start: %#llx mask: %#llx\n"
+		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
+		indent, "", node, node->idx_start, node->mask,
+		indent, "", (node->color == RED) ? "RED  " : "BLACK",
+		node_depth(sb, node), node->parent, node->left, node->right);
+	sb_pdynstr_t left_str = NULL, right_str = NULL;
+	if (node->left) {
+		left_str = dump_subtree(sb, node->left, indent + 2);
+	}
+	if (node->right) {
+		right_str = dump_subtree(sb, node->right, indent + 2);
+	}
+
+	rv_str = dyn_sprintf("%s%s%s", node_str,
+		(left_str) ? left_str : "", (right_str) ? right_str : "");
+	sb_pdynstr_free(node_str);
+	if (left_str) {
+		sb_pdynstr_free(left_str);
+	}
+	if (right_str) {
+		sb_pdynstr_free(right_str);
+	}
+
+	return rv_str;
 }
 
 static sb_pdynstr_t dyn_sprintf(const char *format, ...)
@@ -650,5 +1099,7 @@ static sb_pdynstr_t dyn_sprintf(const char *format, ...)
 	return s;
 }
 
-
-
+void sb_pdynstr_free(sb_pdynstr_t pdynstr)
+{
+	free(pdynstr);
+}
