@@ -25,6 +25,7 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define NUM(a) (sizeof(a)/sizeof((a)[0]))
+#define MEMCLEAR(p, n) memset((p), 0, (n))
 
 void test_create_delete(void)
 {
@@ -412,6 +413,147 @@ void test_first_next_cleared(void)
 	sb_delete(sb);
 }
 
+// Sets then clears 6 bits in all possible orders/permutations.  The bits
+// indexes are sufficiently seperated such that the state of each bit
+// will be maintained by its own node.  The primary purpose of this test
+// is to validate that the binary-tree used to maintain the nodes is valid
+// no matter which order the nodes are added then deleted.
+// There is a trade-off between how many nodes are added then deleted and
+// how long the test takes to execute.  A complete binary tree has 1 node
+// at the root (level-0), 2 at level-1, and 4 at level-2.  For a total of
+// 7 nodes in the first 3 levels.  Ideally would validate all permutations
+// for the first 3 levels, but that tends to take several minutes to
+// execute.  This test performs all permutations of just 6 nodes, which
+// tends to execute in significantly less than a minute and provides
+// nearly the same level of validations.  Nearly the same level of validation
+// in that the third level of a complete binary-tree will have 3 of the 4
+// nodes present, with 2 of them attached to the left and right of the next
+// higher level and the 3rd attached to either the left or right of the
+// other node in the next higher level.
+void test_permutations6(void)
+{
+	unsigned int idx_set[6];
+	unsigned int idx_clear[6];
+
+	sb_idx_t idx_base = 0x2350000;
+	sb_idx_t idx_stride = 0x100;  // At least twice the number of bits
+	                              // in a nodes mask, so each of the set
+	                              // bits are maintained in a distinct node.
+
+	// For each permutation of the Set indexes.
+	MEMCLEAR(idx_set, sizeof(idx_set));
+	do {
+		// Increment Add Indexes
+		unsigned int n;
+		for (n = 0; n < NUM(idx_set); n++) {
+			idx_set[n]++;
+			if (idx_set[n] < NUM(idx_set)) {
+				break;
+			}
+			idx_set[n] = 0;
+		}
+		if (n == NUM(idx_set)) break;
+
+		// Skip if any duplicate set indexes.
+		bool skip = false;
+		for (unsigned int n1 = 0; n1 < NUM(idx_set) - 1; n1++) {
+			for (unsigned int n2 = n1 + 1; n2 < NUM(idx_set); n2++) {
+				if (idx_set[n1] == idx_set[n2]) {
+					skip = true;
+					break;
+				}
+			}
+			if (skip) {
+				break;
+			}
+		}
+		if (skip) continue;
+
+		// For each permutation of the clear indexes.
+		MEMCLEAR(idx_clear, sizeof(idx_clear));
+		do {
+			// Increment Clear Indexes
+			unsigned int n;
+			for (n = 0; n < NUM(idx_clear); n++) {
+				idx_clear[n]++;
+				if (idx_clear[n] < NUM(idx_clear)) {
+					break;
+				}
+				idx_clear[n] = 0;
+			}
+			if (n == NUM(idx_clear)) break;
+
+			// Skip if any duplicate clear indexes.
+			bool skip = false;
+			for (unsigned int n1 = 0; n1 < NUM(idx_clear) - 1; n1++) {
+				for (unsigned int n2 = n1 + 1; n2 < NUM(idx_clear); n2++) {
+					if (idx_clear[n1] == idx_clear[n2]) {
+						skip = true;
+						break;
+					}
+				}
+				if (skip) {
+					break;
+				}
+			}
+			if (skip) continue;
+
+			sb_t *sb = sb_create();
+
+			// Perform the set operations, in the order given by idx_set[].
+			for (unsigned int n = 0; n < NUM(idx_set); n++) {
+				sb_set(sb, (idx_set[n] * idx_stride) + idx_base);
+			}
+			sb_pdynstr_t err_string = sb_validate(sb);
+			if (err_string) {
+				fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+				fputs(sb_dump(sb), stderr);
+				CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
+				sb_pdynstr_free(err_string);
+			}
+
+			// Perform the clear operations, in the order given by idx_clear[].
+			for (unsigned int n = 0; n < NUM(idx_clear); n++) {
+				sb_clear(sb, (idx_clear[n] * idx_stride) + idx_base);
+				err_string = sb_validate(sb);
+				if (err_string) {
+					fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+					fputs(sb_dump(sb), stderr);
+					CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
+					sb_pdynstr_free(err_string);
+				}
+			}
+			err_string = sb_validate(sb);
+			if (err_string) {
+				fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+				fputs(sb_dump(sb), stderr);
+				CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
+				sb_pdynstr_free(err_string);
+			}
+
+			sb_delete(sb);
+		} while (true);
+	} while (true);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}
+
 int main(void)
 {
 	bool any_failed;
@@ -440,6 +582,7 @@ int main(void)
 		|| (CU_add_test(pSuite, "first_next_set", test_first_next_set) == NULL)
 		|| (CU_add_test(pSuite, "first_next_cleared", test_first_next_cleared)
 			== NULL)
+		|| (CU_add_test(pSuite, "permutations6", test_permutations6) == NULL)
 		) {
 		CU_cleanup_registry();
 
