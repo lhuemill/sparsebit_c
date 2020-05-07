@@ -298,7 +298,7 @@ int main(int argc, char *argv[])
 		}
 
 		// Validate sb_firstset()
-		sb_idx_t expected_firstset = 5;
+		sb_idx_t expected_firstset = 0;
 		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
 			range_idx++) {
 			if (range_numset(range_idx)) {
