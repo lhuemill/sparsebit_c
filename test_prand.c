@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
 	static const struct option options[] = {
 		{} // End-of-Array Marker
 	};
-	char opt;
+	int opt;
 	bool error;
 	while ((opt = getopt_long(argc, argv, "h?", options, NULL)) != EOF) {
 		switch (opt) {
