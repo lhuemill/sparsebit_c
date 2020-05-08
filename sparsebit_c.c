@@ -307,7 +307,7 @@ sb_idx_t sb_firstcleared(sb_t* sb)
 
 			if (node->mask != ~(mask_t)0) {
 				for (sb_idx_t n = 0; n < NUM_MASK_BITS; n++) {
-					if (node->mask && ((mask_t)1 << n)) {
+					if ((node->mask & ((mask_t)1 << n)) == 0) {
 						return node->idx_start + n;
 					}
 				}
