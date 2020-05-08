@@ -276,7 +276,8 @@ bool sb_anycleared(sb_t* sb)
 	// sb_numcleared() returns 0 both when all bits are set and all bits
 	// are cleared, because there are a total of ~(sb_num_t)0 + 1 bits.
 	// With overflow, one more than ~(sb_num_t)0 is 0.
-	return sb_numcleared(sb) || (sb->root && (sb->root->mask != ~(mask_t)0));
+	return sb_numcleared(sb) || (sb->root == NULL)
+		|| ((sb->root != NULL) && (sb->num_set != 0));
 }
 
 sb_num_t sb_numcleared(sb_t* sb)
