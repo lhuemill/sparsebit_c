@@ -19,14 +19,6 @@
  *     + Implement node set_after member, which allows a single node to
  *       describe any number of contigous set bits after the bits
  *       describe by the mask.
- *
- *     + Improved sb_nextset() and sb_nextcleared() improvement, through
- *       the use of a node hint pointer.  For this, the sparsebit root
- *       structure would maintain a hint pointer, which points to the
- *       most recently accessed node of the binary tree.  As long as the
- *       tree structure doesn't change, operations can use the hint pointer
- *       as a means to access a node that is likely to support the current
- *       operation.
  */
 #include <assert.h>
 #include <errno.h>
@@ -48,6 +40,7 @@ struct node;
 typedef struct node node_t;
 struct sb {
 	node_t *root;
+	node_t *hint;
 	sb_num_t num_set;
 };
 
@@ -374,6 +367,10 @@ static node_t *node_find(sb_t *sb, sb_idx_t idx)
 {
 	node_t *node;
 
+	if ((sb->hint != NULL) && node_supports_idx(sb->hint, idx)) {
+		return sb->hint;
+	}
+
 	node = sb->root;
 	while ((node != NULL) && (!node_supports_idx(node, idx))) {
 		int cmp_rv = node_cmp_idx(node, idx);
@@ -386,6 +383,7 @@ static node_t *node_find(sb_t *sb, sb_idx_t idx)
 			node = node->right;
 		}
 	}
+	sb->hint = node;
 
 	return node;
 }
@@ -393,6 +391,10 @@ static node_t *node_find(sb_t *sb, sb_idx_t idx)
 static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx)
 {
 	node_t *node;
+
+	if ((sb->hint != NULL) && node_supports_idx(sb->hint, idx)) {
+		return sb->hint;
+	}
 
 	node = sb->root;
 	while ((node != NULL) && (!node_supports_idx(node, idx))) {
@@ -402,18 +404,22 @@ static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx)
 		                      // so why does node->idx_start == idx?
 		if (cmp_rv > 0) {
 			if (node->left == NULL) {
+				sb->hint = node;
 				return node;
 			}
 
 			node = node->left;
 		} else {
 			if (node->right == NULL) {
-				return node_next(node);
+				node = node_next(node);
+				sb->hint = node;
+				return node;
 			}
 
 			node = node->right;
 		}
 	}
+	sb->hint = node;
 
 	return node;
 }
@@ -422,6 +428,10 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 {
 	node_t *node;
 
+	if ((sb->hint != NULL) && node_supports_idx(sb->hint, idx)) {
+		return sb->hint;
+	}
+
 	// Create root node, if it doesn't already exist.
 	if (sb->root == NULL) {
 		node = malloc(sizeof(node_t));
@@ -429,6 +439,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 		node->idx_start = idx - (idx % NUM_MASK_BITS);
 		node_insert(sb, NULL, node);
 
+		sb->hint = node;
 		return node;
 	}
 
@@ -449,6 +460,8 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			}
 
 			assert((child == NULL) || node_supports_idx(child, idx));
+
+			sb->hint = child;
 			return child;
 		} else {
 			if (node->right) {
@@ -465,12 +478,15 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			}
 
 			assert((child == NULL) || node_supports_idx(child, idx));
+
+			sb->hint = child;
 			return child;
 		}
 	}
 
 	assert((node != NULL) && node_supports_idx(node, idx));
 
+	sb->hint = node;
 	return node;
 }
 
@@ -857,6 +873,7 @@ static void node_delete(sb_t *sb, node_t *node)
 		sb->root = NULL;
 	}
 
+	sb->hint = NULL;
 	free(node);
 }
 
