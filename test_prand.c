@@ -29,7 +29,7 @@
 #define DEFAULT_PASS_END 10000
 #define PASSED_DISPLAY_STRIDE 100
 
-#define NUM_TEST_RANGES 4
+#define NUM_TEST_RANGES 6
 #define BITS_PER_TEST_RANGE 300
 #define PER_PASS_NUM_OPS 1000
 
@@ -51,8 +51,12 @@ static int range_idx_cmp(const void *elem1, const void *elem2);
 static sb_num_t range_numset(unsigned int range_idx);
 static sb_idx_t range_firstset(unsigned int range_idx);
 static bool range_supports_idx(unsigned int range_idx, sb_idx_t idx);
-static sb_idx_t ranges_nextset(sb_idx_t start_idx);
-static sb_idx_t ranges_nextcleared(sb_idx_t start_idx);
+static bool expected_isset(sb_idx_t idx);
+static sb_num_t expected_numset(void);
+static sb_idx_t expected_firstset(void);
+static sb_idx_t expected_nextset(sb_idx_t start_idx);
+static sb_idx_t expected_firstcleared(void);
+static sb_idx_t expected_nextcleared(sb_idx_t start_idx);
 
 struct test_range {
 	sb_idx_t start_idx;
@@ -62,12 +66,22 @@ struct test_range test_ranges[NUM_TEST_RANGES];
 
 enum OP {
 	SET_BIT = 132,
-	SET_BITNUM,
+	SET_NUM,
+	QUERY_ANYSET,
+	QUERY_NUMSET,
+	QUERY_ISSET,
+	QUERY_FIRSTSET,
+	QUERY_NEXTSET,
 	CLEAR_BIT,
-	CLEAR_BITNUM,
+	CLEAR_NUM,
+	QUERY_ANYCLEARED,
+	QUERY_NUMCLEARED,
+	QUERY_ISCLEARED,
+	QUERY_FIRSTCLEARED,
+	QUERY_NEXTCLEARED,
 };
 #define OP_TYPE_FIRST SET_BIT
-#define OP_TYPE_LAST CLEAR_BITNUM
+#define OP_TYPE_LAST QUERY_NEXTCLEARED
 #define OP_TYPE_NUM (OP_TYPE_LAST - OP_TYPE_FIRST)
 struct operation {
 	unsigned int range_idx;
@@ -76,7 +90,6 @@ struct operation {
 	sb_num_t num;
 };
 struct operation operations[PER_PASS_NUM_OPS];
-
 
 int main(int argc, char *argv[])
 {
@@ -193,11 +206,10 @@ int main(int argc, char *argv[])
 			operations[op_idx].range_idx = rand() % NUM(test_ranges);
 			operations[op_idx].op = OP_TYPE_FIRST + (rand() % OP_TYPE_NUM);
 			operations[op_idx].offset = rand() % BITS_PER_TEST_RANGE;
-			if ((operations[op_idx].op == SET_BITNUM)
-				|| (operations[op_idx].op == CLEAR_BITNUM)) {
+			if ((operations[op_idx].op == SET_NUM)
+				|| (operations[op_idx].op == CLEAR_NUM)) {
 				operations[op_idx].num = rand()
 					% ((BITS_PER_TEST_RANGE - operations[op_idx].offset) + 1);
-
 			}
 		}
 
@@ -212,6 +224,12 @@ int main(int argc, char *argv[])
 		// Perform the pseudo-randomly selected operations.
 		for (struct operation *p_op = operations;
 			p_op < (operations + NUM(operations)); p_op++) {
+			bool expected_bool;
+			sb_idx_t expected_idx;
+			sb_num_t expected_num;
+			bool actual_bool;
+			sb_idx_t actual_idx;
+			sb_num_t actual_num;
 			
 			sb_idx_t idx = test_ranges[p_op->range_idx].start_idx + p_op->offset;
 
@@ -221,10 +239,85 @@ int main(int argc, char *argv[])
 				test_ranges[p_op->range_idx].expected[p_op->offset] = true;
 				break;
 
-			case SET_BITNUM:
+			case SET_NUM:
 				sb_setnum(sb, idx, p_op->num);
 				for (unsigned int n1 = 0; n1 < p_op->num; n1++) {
 					test_ranges[p_op->range_idx].expected[p_op->offset + n1] = true;
+				}
+				break;
+
+			case QUERY_ANYSET:
+				expected_bool = (expected_numset() > 0) ? true : false;
+				actual_bool = sb_anyset(sb);
+				if (expected_bool != actual_bool) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_ANYSET Unexpected Any Set:\n"
+						"  actual: %i expected: %i\n",
+						pass, actual_bool, expected_bool);
+					fputs(sb_dump(sb), stderr);
+					exit(40);
+				}
+				break;
+
+			case QUERY_NUMSET:
+				expected_num = expected_numset();
+				actual_num = sb_numset(sb);
+				if (expected_num != actual_num) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_NUMSET Unexpected Num Set:\n"
+						"  actual: %#llx expected: %#llx\n",
+						pass, (unsigned long long) actual_num,
+						(unsigned long long) expected_num);
+					fputs(sb_dump(sb), stderr);
+					exit(41);
+				}
+				break;
+
+			case QUERY_ISSET:
+				expected_bool = expected_isset(idx);
+				actual_bool = sb_isset(sb, idx);
+				if (expected_bool != actual_bool) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_ISSET Unexpected Is Set:\n"
+						"  actual: %i expected: %i idx: %#llx\n",
+						pass, actual_bool, expected_bool,
+						(unsigned long long) idx);
+					fputs(sb_dump(sb), stderr);
+					exit(42);
+				}
+				break;
+
+			case QUERY_FIRSTSET:
+				expected_idx = expected_firstset();
+				actual_idx = sb_firstset(sb);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_FIRSTSET Unexpected First Set:\n"
+						"  actual: %#llx expected: %#llx\n",
+						pass, (unsigned long long) actual_idx,
+						(unsigned long long) expected_idx);
+					fputs(sb_dump(sb), stderr);
+					exit(43);
+				}
+				break;
+
+			case QUERY_NEXTSET:
+				expected_idx = expected_nextset(idx);
+				actual_idx = sb_nextset(sb, idx);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_NEXTSET Unexpected Next Set:\n"
+						"  actual: %#llx expected: %#llx idx: %#llx\n",
+						pass, (unsigned long long) actual_idx,
+						(unsigned long long) expected_idx,
+						(unsigned long long) idx);
+					fputs(sb_dump(sb), stderr);
+					exit(44);
 				}
 				break;
 
@@ -233,10 +326,88 @@ int main(int argc, char *argv[])
 				test_ranges[p_op->range_idx].expected[p_op->offset] = false;
 				break;
 
-			case CLEAR_BITNUM:
+			case CLEAR_NUM:
 				sb_clearnum(sb, idx, p_op->num);
 				for (unsigned int n1 = 0; n1 < p_op->num; n1++) {
 					test_ranges[p_op->range_idx].expected[p_op->offset + n1] = false;
+				}
+				break;
+
+			case QUERY_ANYCLEARED:
+				expected_bool = true;  // There are always at least some cleared
+				                       // bits between the test ranges.  So far
+				                       // the implementation of this test
+				                       // never sets all bits.
+				actual_bool = sb_anycleared(sb);
+				if (expected_bool != actual_bool) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_ANYCLEARED Unexpected Any Cleared:\n"
+						"  actual: %i expected: %i\n",
+						pass, actual_bool, expected_bool);
+					fputs(sb_dump(sb), stderr);
+					exit(50);
+				}
+				break;
+
+			case QUERY_NUMCLEARED:
+				expected_num = (sb_num_t) 0 - expected_numset();
+				actual_num = sb_numcleared(sb);
+				if (expected_num != actual_num) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_NUMCLEARED Unexpected Num Cleared:\n"
+						"  actual: %#llx expected: %#llx\n",
+						pass, (unsigned long long) actual_num,
+						(unsigned long long) expected_num);
+					fputs(sb_dump(sb), stderr);
+					exit(51);
+				}
+				break;
+
+			case QUERY_ISCLEARED:
+				expected_bool = !expected_isset(idx);
+				actual_bool = sb_iscleared(sb, idx);
+				if (expected_bool != actual_bool) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_ISCLEARED Unexpected Is Cleared:\n"
+						"  actual: %i expected: %i idx: %#llx\n",
+						pass, actual_bool, expected_bool,
+						(unsigned long long) idx);
+					fputs(sb_dump(sb), stderr);
+					exit(52);
+				}
+				break;
+
+			case QUERY_FIRSTCLEARED:
+				expected_idx = expected_firstcleared();
+				actual_idx = sb_firstcleared(sb);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_FIRSTCLEARED Unexpected First Cleared:\n"
+						"  actual: %#llx expected: %#llx\n",
+						pass, (unsigned long long) actual_idx,
+						(unsigned long long) expected_idx);
+					fputs(sb_dump(sb), stderr);
+					exit(53);
+				}
+				break;
+
+			case QUERY_NEXTCLEARED:
+				expected_idx = expected_nextcleared(idx);
+				actual_idx = sb_nextcleared(sb, idx);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_NEXTCLEARED Unexpected Next Cleared:\n"
+						"  actual: %#llx expected: %#llx idx: %#llx\n",
+						pass, (unsigned long long) actual_idx,
+						(unsigned long long) expected_idx,
+						(unsigned long long) idx);
+					fputs(sb_dump(sb), stderr);
+					exit(54);
 				}
 				break;
 
@@ -257,64 +428,52 @@ int main(int argc, char *argv[])
 		}
 
 		// Validate Individual Bit Settings
-		// within the  espected bit array of each range.
+		// within the expected bit array of each range.
 		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
 			range_idx++) {
 			for (unsigned int bit_idx = 0;
 				bit_idx < NUM(test_ranges[range_idx].expected); bit_idx++) {
-					bool expected = test_ranges[range_idx].expected[bit_idx];
-					bool actual = sb_isset(sb, test_ranges[range_idx].start_idx
-						+ bit_idx) ? true : false;
+				sb_idx_t idx = test_ranges[range_idx].start_idx + bit_idx;
+				bool expected = expected_isset(idx);
+				bool actual = sb_isset(sb, idx) ? true : false;
 
-					if (actual != expected) {
-						display_passed_passes(&passed_last_displayed, pass - 1);
-						fprintf(stderr, "Pass %li: Validation Error - "
-							"Unexpected Bit Setting:\n"
-							"  idx: %#llx actual: %i expected: %i\n",
-							pass, (unsigned long long)test_ranges[range_idx].start_idx
-							+ bit_idx, actual, expected);
-						fputs(sb_dump(sb), stderr);
-						exit(32);
-					}
+				if (actual != expected) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"Unexpected Bit Setting:\n"
+						"  idx: %#llx actual: %i expected: %i\n",
+						pass, (unsigned long long) idx, actual, expected);
+					fputs(sb_dump(sb), stderr);
+					exit(32);
 				}
+			}
 		}
 
 		// Validate Num Set Bits
-		sb_num_t expected_numset = 0;
-		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
-			range_idx++) {
-			expected_numset += range_numset(range_idx);
-		}
-		sb_num_t actual_numset = sb_numset(sb);
-		if (actual_numset != expected_numset) {
+		sb_num_t expected_num = expected_numset();
+		sb_num_t actual_num = sb_numset(sb);
+		if (actual_num != expected_num) {
 			display_passed_passes(&passed_last_displayed, pass - 1);
 			fprintf(stderr, "Pass %li: Validation Error - "
 				"Unexpected Num Bits Set:\n"
 				"  actual: %#llx expected: %#llx\n",
-				pass, (unsigned long long)actual_numset,
-				(unsigned long long)expected_numset);
+				pass, (unsigned long long)actual_num,
+				(unsigned long long)expected_num);
 			fputs(sb_dump(sb), stderr);
 			exit(33);
 		}
 
 		// Validate sb_firstset()
-		sb_idx_t expected_firstset = 0;
-		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
-			range_idx++) {
-			if (range_numset(range_idx)) {
-				expected_firstset = range_firstset(range_idx);
-				break;  // First range with any bits set, will be the range with
-				        // the first set bit.
-			}
-		}
+		sb_idx_t expected_idx = expected_firstset();
 		sb_idx_t actual_firstset = sb_firstset(sb);
-		if (actual_firstset != expected_firstset) {
+		if (actual_firstset != expected_idx) {
 			display_passed_passes(&passed_last_displayed, pass - 1);
 			fprintf(stderr, "Pass %li: Validation Error - "
 				"Unexpected First Set:\n"
 				"  actual: %#llx expected: %#llx\n",
 				pass, (unsigned long long)actual_firstset,
-				(unsigned long long)expected_firstset);
+				(unsigned long long)expected_idx);
 			fputs(sb_dump(sb), stderr);
 			exit(34);
 		}
@@ -335,17 +494,16 @@ int main(int argc, char *argv[])
 				if ((bit_idx > 0) && (idx1 < p_range->start_idx) ) {
 					continue;
 				}
-			 	sb_idx_t expected = ranges_nextset(idx1);
-
+			 	expected_idx = expected_nextset(idx1);
 				sb_idx_t actual = sb_nextset(sb, idx1);
 
-				if (actual != expected) {
+				if (actual != expected_idx) {
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"Unexpected Next Set:\n"
 						"  idx1: %#llx actual: %#llx expected: %#llx\n",
 						pass, (unsigned long long)idx1,
-						(unsigned long long)actual, (unsigned long long)expected);
+						(unsigned long long)actual, (unsigned long long)expected_idx);
 					fputs(sb_dump(sb), stderr);
 					exit(35);
 				}
@@ -368,17 +526,16 @@ int main(int argc, char *argv[])
 				if ((bit_idx > 0) && (idx1 < p_range->start_idx) ) {
 					continue;
 				}
-			 	sb_idx_t expected = ranges_nextcleared(idx1);
-
+			 	expected_idx = expected_nextcleared(idx1);
 				sb_idx_t actual = sb_nextcleared(sb, idx1);
 
-				if (actual != expected) {
+				if (actual != expected_idx) {
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"Unexpected Next Cleared:\n"
 						"  idx1: %#llx actual: %#llx expected: %#llx\n",
 						pass, (unsigned long long)idx1,
-						(unsigned long long)actual, (unsigned long long)expected);
+						(unsigned long long)actual, (unsigned long long)expected_idx);
 					fputs(sb_dump(sb), stderr);
 					exit(36);
 				}
@@ -484,7 +641,46 @@ static bool range_supports_idx(unsigned int range_idx, sb_idx_t idx)
 	return false;
 }
 
-static sb_idx_t ranges_nextset(sb_idx_t start_idx)
+static bool expected_isset(sb_idx_t idx)
+{
+	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+		// Does this range maintain the expected state of idx?
+		if ((idx >= test_ranges[range_idx].start_idx)
+			&& (idx <= (test_ranges[range_idx].start_idx
+				+ NUM(test_ranges[range_idx].expected) - 1))) {
+			return test_ranges[range_idx].expected[idx
+				- test_ranges[range_idx].start_idx];
+		}
+	}
+
+	// No range that maintains the expected setting of the bit at index idx,
+	// so the bit should always be cleared.
+	return false;
+}
+
+static sb_num_t expected_numset(void)
+{
+	sb_num_t expected_numset = 0;
+	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+		expected_numset += range_numset(range_idx);
+	}
+
+	return expected_numset;
+}
+
+static sb_idx_t expected_firstset(void)
+{
+	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+		if (range_numset(range_idx)) {
+			return range_firstset(range_idx);
+		}
+	}
+
+	// No set bits, in any range.
+	return 0;
+}
+
+static sb_idx_t expected_nextset(sb_idx_t start_idx)
 {
 	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		struct test_range *p_range = &test_ranges[range_idx];
@@ -503,7 +699,45 @@ static sb_idx_t ranges_nextset(sb_idx_t start_idx)
 	return 0;
 }
 
-static sb_idx_t ranges_nextcleared(sb_idx_t start_idx)
+static sb_idx_t expected_firstcleared(void)
+{
+	if (test_ranges[0].start_idx != 0) {
+		// Fix test range starts at an index > 0.  All bits before the start
+		// of that range are cleared, including the bit at index 0.
+		return 0;
+	}
+
+	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+		for (int bit_idx = 0; bit_idx
+			< NUM(test_ranges[range_idx].expected); bit_idx++) {
+			if (!test_ranges[range_idx].expected[bit_idx]) {
+				return test_ranges[range_idx].start_idx + bit_idx;
+			}
+		}
+
+		// Is there a gap between this and the next test range?
+		if ((range_idx + 1) < NUM(test_ranges)) {
+			// There is a gap.  Return index of first bit within the gap.
+			return test_ranges[range_idx].start_idx
+				+ NUM(test_ranges[range_idx].expected);
+		} else {
+			// First cleared bit will be the first bit index after the last
+			// test range.
+			assert(range_idx == (NUM(test_ranges) - 1));
+			assert((test_ranges[range_idx].start_idx
+				+ NUM(test_ranges[range_idx].expected)) != 0);
+			return test_ranges[range_idx].start_idx
+				+ NUM(test_ranges[range_idx].expected);
+		}
+	}
+
+	assert(false);  // So far the implementation of this testcase does not
+	                // allow all bits to be set.  Thus there should always
+	                // be at least one cleared bit.
+	// NOT REACHED
+}
+
+static sb_idx_t expected_nextcleared(sb_idx_t start_idx)
 {
 	if (start_idx == SB_IDX_MAX) {
 		return 0;
