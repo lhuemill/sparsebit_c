@@ -977,7 +977,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 			// Nodes should only exist if they represent at least 1 set bit.
 			if (node_num_set(node) == 0) {
 				return dyn_sprintf("Node doesn't represent any set bits,\n"
-					"  node: %p mask: %#llx",
+					"  node: %p mask: %#" SB_PRI_IDX,
 					node, node->mask);
 			}
 
@@ -1057,7 +1057,7 @@ static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
 	sb_pdynstr_t rv_str;
 
 	sb_pdynstr_t node_str = dyn_sprintf(
-		"%*snode: %p idx_start: %#llx mask: %#llx\n"
+		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#" SB_PRI_IDX "\n"
 		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
 		indent, "", node, node->idx_start, node->mask,
 		indent, "", (node->color == RED) ? "RED  " : "BLACK",

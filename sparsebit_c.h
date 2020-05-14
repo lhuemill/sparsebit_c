@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -22,7 +23,9 @@ struct sb;  // Intentional incomplete structure definition.
 typedef struct sb sb_t;
 
 typedef uint64_t sb_idx_t;
+#define SB_PRI_IDX PRIx64
 typedef uint64_t sb_num_t;
+#define SB_PRI_NUM PRIx64
 
 #define SB_IDX_MAX (~(sb_idx_t)0)
 

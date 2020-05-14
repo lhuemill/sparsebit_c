@@ -267,9 +267,8 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_NUMSET Unexpected Num Set:\n"
-						"  actual: %#llx expected: %#llx\n",
-						pass, (unsigned long long) actual_num,
-						(unsigned long long) expected_num);
+						"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
+						pass, actual_num, expected_num);
 					fputs(sb_dump(sb), stderr);
 					exit(41);
 				}
@@ -282,9 +281,8 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_ISSET Unexpected Is Set:\n"
-						"  actual: %i expected: %i idx: %#llx\n",
-						pass, actual_bool, expected_bool,
-						(unsigned long long) idx);
+						"  actual: %i expected: %i idx: %#" SB_PRI_IDX "\n",
+						pass, actual_bool, expected_bool, idx);
 					fputs(sb_dump(sb), stderr);
 					exit(42);
 				}
@@ -297,9 +295,8 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_FIRSTSET Unexpected First Set:\n"
-						"  actual: %#llx expected: %#llx\n",
-						pass, (unsigned long long) actual_idx,
-						(unsigned long long) expected_idx);
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx);
 					fputs(sb_dump(sb), stderr);
 					exit(43);
 				}
@@ -312,10 +309,9 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_NEXTSET Unexpected Next Set:\n"
-						"  actual: %#llx expected: %#llx idx: %#llx\n",
-						pass, (unsigned long long) actual_idx,
-						(unsigned long long) expected_idx,
-						(unsigned long long) idx);
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
+						" idx: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx, idx);
 					fputs(sb_dump(sb), stderr);
 					exit(44);
 				}
@@ -357,9 +353,8 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_NUMCLEARED Unexpected Num Cleared:\n"
-						"  actual: %#llx expected: %#llx\n",
-						pass, (unsigned long long) actual_num,
-						(unsigned long long) expected_num);
+						"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
+						pass, actual_num, expected_num);
 					fputs(sb_dump(sb), stderr);
 					exit(51);
 				}
@@ -372,9 +367,8 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_ISCLEARED Unexpected Is Cleared:\n"
-						"  actual: %i expected: %i idx: %#llx\n",
-						pass, actual_bool, expected_bool,
-						(unsigned long long) idx);
+						"  actual: %i expected: %i idx: %#" SB_PRI_IDX "\n",
+						pass, actual_bool, expected_bool, idx);
 					fputs(sb_dump(sb), stderr);
 					exit(52);
 				}
@@ -387,9 +381,8 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_FIRSTCLEARED Unexpected First Cleared:\n"
-						"  actual: %#llx expected: %#llx\n",
-						pass, (unsigned long long) actual_idx,
-						(unsigned long long) expected_idx);
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx);
 					fputs(sb_dump(sb), stderr);
 					exit(53);
 				}
@@ -402,10 +395,9 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_NEXTCLEARED Unexpected Next Cleared:\n"
-						"  actual: %#llx expected: %#llx idx: %#llx\n",
-						pass, (unsigned long long) actual_idx,
-						(unsigned long long) expected_idx,
-						(unsigned long long) idx);
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
+						" idx: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx, idx);
 					fputs(sb_dump(sb), stderr);
 					exit(54);
 				}
@@ -442,8 +434,8 @@ int main(int argc, char *argv[])
 
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"Unexpected Bit Setting:\n"
-						"  idx: %#llx actual: %i expected: %i\n",
-						pass, (unsigned long long) idx, actual, expected);
+						"  idx: %#" SB_PRI_IDX " actual: %i expected: %i\n",
+						pass, idx, actual, expected);
 					fputs(sb_dump(sb), stderr);
 					exit(32);
 				}
@@ -457,9 +449,8 @@ int main(int argc, char *argv[])
 			display_passed_passes(&passed_last_displayed, pass - 1);
 			fprintf(stderr, "Pass %li: Validation Error - "
 				"Unexpected Num Bits Set:\n"
-				"  actual: %#llx expected: %#llx\n",
-				pass, (unsigned long long)actual_num,
-				(unsigned long long)expected_num);
+				"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
+				pass, actual_num, expected_num);
 			fputs(sb_dump(sb), stderr);
 			exit(33);
 		}
@@ -471,9 +462,8 @@ int main(int argc, char *argv[])
 			display_passed_passes(&passed_last_displayed, pass - 1);
 			fprintf(stderr, "Pass %li: Validation Error - "
 				"Unexpected First Set:\n"
-				"  actual: %#llx expected: %#llx\n",
-				pass, (unsigned long long)actual_firstset,
-				(unsigned long long)expected_idx);
+				"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+				pass, actual_firstset, expected_idx);
 			fputs(sb_dump(sb), stderr);
 			exit(34);
 		}
@@ -501,9 +491,9 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"Unexpected Next Set:\n"
-						"  idx1: %#llx actual: %#llx expected: %#llx\n",
-						pass, (unsigned long long)idx1,
-						(unsigned long long)actual, (unsigned long long)expected_idx);
+						"  idx1: %#" SB_PRI_IDX " actual: %#" SB_PRI_IDX
+						" expected: %#" SB_PRI_IDX "\n",
+						pass, idx1, actual, expected_idx);
 					fputs(sb_dump(sb), stderr);
 					exit(35);
 				}
@@ -533,9 +523,9 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"Unexpected Next Cleared:\n"
-						"  idx1: %#llx actual: %#llx expected: %#llx\n",
-						pass, (unsigned long long)idx1,
-						(unsigned long long)actual, (unsigned long long)expected_idx);
+						"  idx1: %#" SB_PRI_IDX " actual: %#" SB_PRI_IDX
+						" expected: %#" SB_PRI_IDX "\n",
+						pass, idx1, actual, expected_idx);
 					fputs(sb_dump(sb), stderr);
 					exit(36);
 				}
