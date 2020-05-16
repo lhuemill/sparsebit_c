@@ -44,9 +44,63 @@ sb_idx_t default_ranges[] = {
 };
 #define RAND_IDX() (((rand() & (((sb_idx_t)1 << 32) - 1)) << 32) | rand())
 
+struct test_range {
+	sb_idx_t start_idx;
+	bool expected[BITS_PER_TEST_RANGE];
+};
+struct test_range test_ranges[NUM_TEST_RANGES];
+
+enum OP {
+	SET_BIT = 132,
+	SET_NUM,
+	CLEAR_BIT,
+	CLEAR_NUM,
+	QUERY_ANYSET,
+	QUERY_NUMSET,
+	QUERY_ISSET,
+	QUERY_FIRSTSET,
+	QUERY_NEXTSET,
+	QUERY_ANYCLEARED,
+	QUERY_NUMCLEARED,
+	QUERY_ISCLEARED,
+	QUERY_FIRSTCLEARED,
+	QUERY_NEXTCLEARED,
+};
+struct op_str {
+	enum OP op;
+	char *str;
+} op_strings[] = {
+	{SET_BIT, "SET_BIT"},
+	{SET_NUM, "SET_NUM"},
+	{CLEAR_BIT, "CLEAR_BIT"},
+	{CLEAR_NUM, "CLEAR_NUM"},
+	{QUERY_ANYSET, "QUERY_ANYSET"},
+	{QUERY_NUMSET, "QUERY_NUMSET"},
+	{QUERY_ISSET, "QUERY_ISSET"},
+	{QUERY_FIRSTSET, "QUERY_FIRSTSET"},
+	{QUERY_NEXTSET, "QUERY_NEXTSET"},
+	{QUERY_ANYCLEARED, "QUERY_ANYCLEARED"},
+	{QUERY_NUMCLEARED, "QUERY_NUMCLEARED"},
+	{QUERY_ISCLEARED, "QUERY_ISCLEARED"},
+	{QUERY_FIRSTCLEARED, "QUERY_FIRSTCLEARED"},
+	{QUERY_NEXTCLEARED, "QUERY_NEXTCLEARED"},
+};
+#define OP_TYPE_FIRST (op_strings[0].op)
+#define OP_TYPE_LAST (op_strings[NUM(op_strings) - 1].op)
+#define OP_TYPE_NUM (OP_TYPE_LAST - OP_TYPE_FIRST + 1)
+struct operation {
+	unsigned int range_idx;
+	enum OP op;
+	unsigned int offset;
+	sb_num_t num;
+};
+struct operation operations[PER_PASS_NUM_OPS];
+
 static void usage(FILE *stream);
 static void help(FILE *stream);
 static void display_passed_passes(long *palready_displayed, long last_passed);
+static void display_operations(FILE *stream);
+static const char *op_string(enum OP op);
 static int range_idx_cmp(const void *elem1, const void *elem2);
 static sb_num_t range_numset(unsigned int range_idx);
 static sb_idx_t range_firstset(unsigned int range_idx);
@@ -57,39 +111,6 @@ static sb_idx_t expected_firstset(void);
 static sb_idx_t expected_nextset(sb_idx_t start_idx);
 static sb_idx_t expected_firstcleared(void);
 static sb_idx_t expected_nextcleared(sb_idx_t start_idx);
-
-struct test_range {
-	sb_idx_t start_idx;
-	bool expected[BITS_PER_TEST_RANGE];
-};
-struct test_range test_ranges[NUM_TEST_RANGES];
-
-enum OP {
-	SET_BIT = 132,
-	SET_NUM,
-	QUERY_ANYSET,
-	QUERY_NUMSET,
-	QUERY_ISSET,
-	QUERY_FIRSTSET,
-	QUERY_NEXTSET,
-	CLEAR_BIT,
-	CLEAR_NUM,
-	QUERY_ANYCLEARED,
-	QUERY_NUMCLEARED,
-	QUERY_ISCLEARED,
-	QUERY_FIRSTCLEARED,
-	QUERY_NEXTCLEARED,
-};
-#define OP_TYPE_FIRST SET_BIT
-#define OP_TYPE_LAST QUERY_NEXTCLEARED
-#define OP_TYPE_NUM (OP_TYPE_LAST - OP_TYPE_FIRST)
-struct operation {
-	unsigned int range_idx;
-	enum OP op;
-	unsigned int offset;
-	sb_num_t num;
-};
-struct operation operations[PER_PASS_NUM_OPS];
 
 int main(int argc, char *argv[])
 {
@@ -134,6 +155,8 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Invalid pass_end of %s\n", argv[optind + 1]);
 				exit(23);
 			}
+		} else {
+			pass_end = pass_start;
 		}
 	}
 	printf("pass_start: %lu\n", pass_start);
@@ -436,6 +459,7 @@ int main(int argc, char *argv[])
 						"Unexpected Bit Setting:\n"
 						"  idx: %#" SB_PRI_IDX " actual: %i expected: %i\n",
 						pass, idx, actual, expected);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(32);
 				}
@@ -570,12 +594,42 @@ static void display_passed_passes(long *palready_displayed, long last_passed)
 	if (last_passed == (*palready_displayed + 1)) {
 		printf("Pass   %6li:           Passed\n", last_passed);
 	} else {
-		printf("Passes %6li to %6li: Passed\n", *palready_displayed + 1, last_passed);
+		printf("Passes %6li to %6li: Passed\n", *palready_displayed + 1,
+			last_passed);
 	}
+	fflush(stdout);
 
 	*palready_displayed = last_passed;
 
 	return;
+}
+
+static void display_operations(FILE *stream)
+{
+	fputs("Operations:\n", stderr);
+	for (unsigned int opt_idx = 0; opt_idx <  NUM(operations); opt_idx++) {
+		fprintf(stderr, "  %3u %u (%s)%*s idx: %#" SB_PRI_IDX
+			" num: %#" SB_PRI_NUM "\n",
+			opt_idx, operations[opt_idx].op,
+			op_string(operations[opt_idx].op),
+			(int) (18 - strlen(op_string(operations[opt_idx].op))), "",
+			test_ranges[operations[opt_idx].range_idx].start_idx
+				+ operations[opt_idx].offset,
+			operations[opt_idx].num);
+	}
+}
+
+static const char *op_string(enum OP op)
+{
+	static const char *unknown_str = "Unknown";
+
+	for (unsigned int n1 = 0; n1 < NUM(op_strings); n1++) {
+		if (op_strings[n1].op == op) {
+			return op_strings[n1].str;
+		}
+	}
+
+	return unknown_str;
 }
 
 static int range_idx_cmp(const void *elem1, const void *elem2)

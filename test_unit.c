@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <CUnit/Basic.h>
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -161,44 +162,6 @@ void test_multinode(void)
 	// can't be described in the mask of a single node.
 	sb_idx_t idx1 = 73;
 	sb_idx_t idx2 = 173;
-	rv = sb_set(sb, idx1);
-	CU_ASSERT_EQUAL_FATAL(rv, 0);
-	rv = sb_set(sb, idx2);
-	CU_ASSERT_EQUAL_FATAL(rv, 0);
-
-	unsigned int pad = 10;
-	for (sb_idx_t idx = (MIN(idx1, idx2) - pad);
-		idx < (MAX(idx1, idx2) + pad); idx++) {
-		if ((idx != idx1) && (idx != idx2)) {
-			CU_ASSERT_FALSE(sb_isset(sb, idx));
-			CU_ASSERT_TRUE(sb_iscleared(sb, idx));
-		} else {
-			CU_ASSERT_TRUE(sb_isset(sb, idx));
-			CU_ASSERT_FALSE(sb_iscleared(sb, idx));
-		}
-	}
-
-	sb_pdynstr_t err_string = sb_validate(sb);
-	if (err_string) {
-		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
-		fputs(sb_dump(sb), stderr);
-		CU_FAIL("Sparsebit - Inconsistent Internal State");
-		sb_pdynstr_free(err_string);
-	}
-
-	sb_delete(sb);
-}
-
-void test_adjacentnode(void)
-{
-	int rv;
-	sb_t *sb = sb_create();
-	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
-
-	// Set two bits, with indexes sufficently close, yet far enough apart,
-	// to be supported by two adjacent nodes.
-	sb_idx_t idx1 = 122;  // 128 - 6
-	sb_idx_t idx2 = 130;  // 128 + 2
 	rv = sb_set(sb, idx1);
 	CU_ASSERT_EQUAL_FATAL(rv, 0);
 	rv = sb_set(sb, idx2);
@@ -534,24 +497,369 @@ void test_permutations6(void)
 			sb_delete(sb);
 		} while (true);
 	} while (true);
+}
+
+void test_set_after_single(void)
+{
+	int rv;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set a few bits before a mask boundary
+	// and then a single bit at the mask boundary.
+	sb_idx_t boundary = 0x1000;
+	int offsets[] = {-5, -2, -1, 0};
+	for (unsigned int n = 0; n < NUM(offsets); n++) {
+		rv = sb_set(sb, boundary + offsets[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+	}
+
+	sb_num_t num = sb_nodes_num(sb);
+	CU_ASSERT_EQUAL(num, 1);
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+void test_set_after_clear_single(void)
+{
+	int rv;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set a few bits before a mask boundary and then a few
+	// contiguous bits starting at the mask boundary.
+	sb_idx_t boundary = 0x2000;
+	int offsets[] = {-5, -3, -2, 0, 1, 2, 3, 4};
+	int offset_clear = 2;
+	for (unsigned int n = 0; n < NUM(offsets); n++) {
+		rv = sb_set(sb, boundary + offsets[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+	}
+	rv = sb_clear(sb, boundary + offset_clear);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+	sb_num_t num = sb_nodes_num(sb);
+	CU_ASSERT_EQUAL(num, 2);
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+void test_set_after_then_clear_mask(void)
+{
+	int rv;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set a single bit before a mask boundary
+	// and then a few contiguous bits starting at the mask boundary.
+	// The bits starting at the mask boundary will get described by
+	// the nodes set_after value.
+	sb_idx_t boundary = 0x2000;
+	int offsets[] = {-4, 0, 1, 2};
+	int offset_clear = -4;
+	for (unsigned int n = 0; n < NUM(offsets); n++) {
+		rv = sb_set(sb, boundary + offsets[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+		sb_pdynstr_t err_string = sb_validate(sb);
+		if (err_string) {
+			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+			fputs(sb_dump(sb), stderr);
+			CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
+			sb_pdynstr_free(err_string);
+		}
+	}
+	rv = sb_clear(sb, boundary + offset_clear);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+	sb_num_t num = sb_nodes_num(sb);
+	CU_ASSERT_EQUAL(num, 1);
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+void test_adjacent(void)
+{
+	int rv;
+	sb_pdynstr_t err_string;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	const sb_idx_t range_start = 0x1000;
+	const sb_num_t stride = 0x40;
+	const sb_num_t num = 20;
+	const sb_idx_t modify_idx[] = {
+		range_start,
+		range_start + 4 * stride,
+		range_start + 8 * stride,
+		range_start + 9 * stride,
+		range_start + 19 * stride,
+	};
+
+	// Set leading bit of each of the nodes.
+	for (sb_idx_t idx = range_start; idx < (range_start + num * stride); idx++) {
+		rv = sb_set(sb, idx);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+		err_string = sb_validate(sb);
+		if (err_string) {
+			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+			fputs(sb_dump(sb), stderr);
+			CU_FAIL("Sparsebit - Inconsistent Internal State");
+			sb_pdynstr_free(err_string);
+		}
+	}
+
+	// Selectively clear some of the leading bits.
+	for (unsigned int n = 0; n < NUM(modify_idx); n++) {
+		rv = sb_clear(sb, modify_idx[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+		err_string = sb_validate(sb);
+		if (err_string) {
+			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+			fputs(sb_dump(sb), stderr);
+			CU_FAIL("Sparsebit - Inconsistent Internal State");
+			sb_pdynstr_free(err_string);
+		}
+	}
+
+	// Set back the setting of each of the cleared leading bits.
+	for (unsigned int n = 0; n < NUM(modify_idx); n++) {
+		rv = sb_set(sb, modify_idx[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+		err_string = sb_validate(sb);
+		if (err_string) {
+			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+			fputs(sb_dump(sb), stderr);
+			CU_FAIL("Sparsebit - Inconsistent Internal State");
+			sb_pdynstr_free(err_string);
+		}
+	}
+
+	err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_pdynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+void test_combinations4(void)
+{
+	struct range {
+		sb_idx_t idx;
+		sb_num_t num;
+	};
+	struct range ranges[] = {
+		{0x1000, 1},
+		{0x1001, 1},
+		{0x1002, 60},
+		{0x103e, 1},
+		{0x103f, 1},
+		{0x1040, 1},
+		{0x1041, 1},
+		{0x1042, 60},
+		{0x107e, 1},
+		{0x107f, 1},
+		{0x1080, 1},
+		{0x1081, 1},
+		{0x1082, 60},
+		{0x10be, 1},
+		{0x10bf, 1},
+	};
+
+	sb_idx_t range_min, range_max;
+	for (unsigned int n = 0; n < NUM(ranges); n++) {
+		if ((n == 0) || (ranges[n].idx < range_min)) {
+			range_min = ranges[n].idx;
+		}
+		if ((n == 0) || ((ranges[n].idx + ranges[n].num - 1) > range_max)) {
+			range_max = ranges[n].idx + ranges[n].num - 1;
+		}
+	}
+	bool *expected = malloc(sizeof(bool) * ((range_max - range_min) + 1));
+
+	struct op {
+		bool do_set;
+		unsigned int range_idx;
+	} operations[4];
 
 
+	MEMCLEAR(operations, sizeof(operations));
 
+	do {
+		MEMCLEAR(expected, sizeof(bool) * ((range_max - range_min) + 1));
+		sb_t *sb = sb_create();
 
+		// Perform Operations
+		for (unsigned int n1 = 0; n1 < NUM(operations); n1++) {
+			struct range *prange = &ranges[operations[n1].range_idx];
+			if (operations[n1].do_set) {
+				sb_setnum(sb, prange->idx, prange->num);
+				for (unsigned int n2 = 0; n2 < prange->num; n2++) {
+					expected[prange->idx - range_min + n2] = true;
+				} 
+			} else {
+				sb_clearnum(sb, prange->idx, prange->num);
+				for (unsigned int n2 = 0; n2 < prange->num; n2++) {
+					expected[prange->idx - range_min + n2] = false;
+				}
+			}
 
+			sb_pdynstr_t err_string = sb_validate(sb);
+			if (err_string) {
+				fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					printf("op %u do_set: %u idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set,
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fputs(sb_dump(sb), stderr);
+				CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
+				sb_pdynstr_free(err_string);
+			}
+		}
 
+		// Validate setting of each bit, along with nextset and nextcleared,
+		// from each bit in the ranges.
+		for (unsigned int n1 = 0; n1 < (range_max - range_min + 1); n1++) {
+			sb_idx_t idx = range_min + n1;
 
+			bool expected_isset = expected[n1];
 
+			sb_idx_t expected_nextset = 0;
+			unsigned int n2;
+			for (n2 = (idx - range_min) + 1; n2 < (range_max - range_min + 1); n2++) {
+				if (expected[n2]) {
+					expected_nextset = range_min + n2;
+					break;
+				}
+			}
 
+			sb_idx_t expected_nextcleared = 0;
+			for (n2 = (idx - range_min) + 1; n2 < (range_max - range_min + 1); n2++) {
+				if (!expected[n2]) {
+					expected_nextcleared = range_min + n2;
+					break;
+				}
+			}
+			if (n2 == (range_max - range_min + 1)) {
+				expected_nextcleared = range_max + 1;
+			}
 
+			bool actual_isset = sb_isset(sb, idx);
+			if (actual_isset != expected_isset) {
+				fputs("Error - Unexpected bit setting\n", stderr);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "op %u do_set: %u idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set,
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fprintf(stderr, "idx: %#" SB_PRI_IDX
+					" actual_isset: %u expected_isset: %u\n",
+					idx, actual_isset, expected_isset);
+				fputs(sb_dump(sb), stderr);
 
+				CU_FAIL_FATAL("Unexpected Bit Setting");
+			}
 
+			sb_idx_t actual_nextset = sb_nextset(sb, idx);
+			if (actual_nextset != expected_nextset) {
+				fputs("Error - Unexpected next set\n", stderr);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "op %u do_set: %u idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set,
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fprintf(stderr,
+					"idx: %#" SB_PRI_IDX " actual_nextset: %#" SB_PRI_IDX
+					" expected_nextset: %#" SB_PRI_IDX "\n",
+					idx, actual_nextset, expected_nextset);
+				fputs(sb_dump(sb), stderr);
 
+				CU_FAIL_FATAL("Unexpected Next Set Index");
+			}
 
+			sb_idx_t actual_nextcleared = sb_nextcleared(sb, idx);
+			if (actual_nextcleared != expected_nextcleared) {
+				fputs("Error - Unexpected next cleared\n", stderr);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "op %u do_set: %u idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set,
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fprintf(stderr,
+					"idx: %#" SB_PRI_IDX " actual_nextcleared: %#" SB_PRI_IDX
+					" expected_nextcleared: %#" SB_PRI_IDX "\n",
+					idx, actual_nextcleared, expected_nextcleared);
+				fputs(sb_dump(sb), stderr);
 
+				CU_FAIL_FATAL("Unexpected Next Cleared Index");
+			}
+		}
 
+		sb_delete(sb);
 
-
+		// Increment to next combination of operations.
+		unsigned int n;
+		for (n = 0; n < NUM(operations); n++) {
+			operations[n].range_idx++;
+			if (operations[n].range_idx >= NUM(ranges)) {
+				operations[n].range_idx = 0;
+				if (operations[n].do_set == false) {
+					operations[n].do_set = true;
+				} else {
+					operations[n].do_set = false;
+					break;
+				}
+			} else {
+				break;
+			}
+		}
+		if (n == NUM(operations)) {
+			break;
+		}
+	} while (true);
 }
 
 int main(void)
@@ -577,12 +885,18 @@ int main(void)
 		|| (CU_add_test(pSuite, "set", test_set) == NULL)
 		|| (CU_add_test(pSuite, "clear", test_clear) == NULL)
 		|| (CU_add_test(pSuite, "multinode", test_multinode) == NULL)
-		|| (CU_add_test(pSuite, "adjacentnode", test_adjacentnode) == NULL)
 		|| (CU_add_test(pSuite, "clear_two_nodes", test_clear_two_nodes) == NULL)
 		|| (CU_add_test(pSuite, "first_next_set", test_first_next_set) == NULL)
 		|| (CU_add_test(pSuite, "first_next_cleared", test_first_next_cleared)
 			== NULL)
 		|| (CU_add_test(pSuite, "permutations6", test_permutations6) == NULL)
+		|| (CU_add_test(pSuite, "set_after_single", test_set_after_single) == NULL)
+		|| (CU_add_test(pSuite, "set_after_clear_single",
+			test_set_after_clear_single) == NULL)
+		|| (CU_add_test(pSuite, "set_after_then_clear_mask",
+			test_set_after_then_clear_mask) == NULL)
+		|| (CU_add_test(pSuite, "adjacent", test_adjacent) == NULL)
+		|| (CU_add_test(pSuite, "combinations4", test_combinations4) == NULL)
 		) {
 		CU_cleanup_registry();
 
@@ -602,4 +916,3 @@ int main(void)
 
 	return (any_failed) ? 1 : 0;
 }
-

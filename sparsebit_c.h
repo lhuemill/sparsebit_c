@@ -51,6 +51,7 @@ sb_idx_t sb_firstcleared(sb_t* sb);
 sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx);
 
 #ifdef SB_TEST
+sb_num_t sb_nodes_num(sb_t *sb);
 typedef char * sb_pdynstr_t;  // Dynamically allocated \0 terminated string.
                               // Caller is responsible for calling
                               // sb_pdynstr_free() once caller is done

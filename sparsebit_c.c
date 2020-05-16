@@ -16,10 +16,11 @@
 /* TODO: Work-In-Progress
  *   Appears to be functionally correct (e.g. Passes all smoke tests).
  *   Following near-term improvements are anticipated:
- *     + Implement node set_after member, which allows a single node to
- *       describe any number of contigous set bits after the bits
- *       describe by the mask.
+ *     + Enhance sb_setnum() and sb_clearnum() to process a node
+ *       worth of bits at a time, instead of a loop that processes
+ *       1 of the num bits per pass.
  */
+
 #include <assert.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -48,12 +49,16 @@ enum node_color {
 	BLACK = false,
 	RED = true,
 };
+
 typedef uint64_t mask_t;
+#define NODE_PRI_MASK PRIx64
 #define NUM_MASK_BITS (sizeof(mask_t) * BITS_PER_BYTE)
+#define MASK_BOUNDARY(idx) ((idx) - ((idx) % NUM_MASK_BITS))
+
 struct node {
 	sb_idx_t idx_start;  // Index of first bit in mask.
 	mask_t mask;
-	sb_num_t set_after;  // Number of contiguosly set bits after bits in mask.
+	sb_num_t set_after;  // Number of contiguously set bits, after last mask bit.
 	enum node_color color;
 	node_t *parent;
 	node_t *left;
@@ -67,6 +72,14 @@ static bool node_supports_idx(node_t *node, sb_idx_t idx);
 static sb_num_t node_num_set(node_t *node);
 static int node_cmp(node_t *node1, node_t *node2);
 static int node_cmp_idx(node_t *node, sb_idx_t idx);
+static bool node_prev_adj(node_t *node);
+static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at);
+static void node_merge(sb_t *sb, node_t *prev, node_t *next);
+static void node_merge_adj_as_needed(sb_t  *sb, node_t *node);
+static bool mask_any_set(mask_t mask);
+static unsigned int mask_num_set(mask_t mask);
+static bool mask_only_leading(mask_t mask);
+static unsigned int mask_num_leading(mask_t mask);
 static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent);
 
 static bool node_is_bud(node_t *node);
@@ -83,7 +96,6 @@ static void node_rotate_left(sb_t *sb, node_t *x);
 static void node_rotate_right(sb_t *sb, node_t *x);
 static void node_transplant(sb_t *sb, node_t *u, node_t *v);
 static void node_insert(sb_t *sb, node_t *parent, node_t *node);
-static void node_insert_fixup(sb_t *sb, node_t *node);
 static void node_delete(sb_t *sb, node_t *node);
 static void node_delete_fixup(sb_t *sb, node_t *node);
 
@@ -121,17 +133,69 @@ void sb_delete(sb_t* sb)
 // ==== Set Operations
 int sb_set(sb_t* sb, sb_idx_t idx)
 {
-	node_t *node = node_find_or_create(sb, idx);
+	sb_idx_t idx_boundary = MASK_BOUNDARY(idx);
+	node_t *node = node_find_or_create(sb, idx_boundary);
 	if (node == NULL) {
 		errno = ENOMEM;
 		return -1;
 	}
 
+	// Is idx beyond nodes mask bits (e.g. part of set_after)?
+	if ((idx - node->idx_start) >= NUM_MASK_BITS) {
+		// Is the bit already set?
+		if (idx <= (node->idx_start + NUM_MASK_BITS + node->set_after - 1)) {
+			return 0;
+		}
+
+		// Is bit just 1 beyond the bits described by the node's set_after value?
+		if (idx == (node->idx_start + NUM_MASK_BITS + node->set_after)) {
+			node->set_after++;
+			sb->num_set++;
+			node_merge_adj_as_needed(sb, node);
+		}
+
+		// Gap between last bit set via node->set_after and index of bit
+		// to be set.
+		node = node_split(sb, node, MASK_BOUNDARY(idx));
+		if (node == NULL) {
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
 	mask_t mask = (mask_t)1 << (idx - node->idx_start);
 	if ((node->mask & mask) == 0) {
 		sb->num_set++;
+		node->mask |= mask;
 	}
-	node->mask |= mask;
+
+	if (node_prev_adj(node) && mask_only_leading(node->mask)) {
+		// Move this nodes leading-only mask bits, into previous nodes
+		// set_after.
+		node_t *prev = node_prev(node);
+		assert(prev != NULL);  // Within node_prev_adj(), so there should
+		                       // be a previous node.
+		unsigned int num_leading = mask_num_leading(node->mask);
+		if ((num_leading != NUM_MASK_BITS) && (node->set_after != 0)) {
+			// There is at least one cleared bit between the last set bit in
+			// the mask and a set bit described by a non-zero set_after value.
+			prev->set_after += num_leading;
+			node->idx_start += NUM_MASK_BITS;
+			node->mask = 0;
+			assert(node->set_after > 0);
+			for (unsigned int n = 0;
+				(node->set_after > 0) && (n < NUM_MASK_BITS); n++) {
+				node->mask |= (mask_t)1 << n;
+				node->set_after--;
+			}
+		} else {
+			prev->set_after += num_leading + node->set_after;
+			node_delete(sb, node);
+			return 0;
+		}
+	}
+
+	node_merge_adj_as_needed(sb, node);
 
 	return 0;
 }
@@ -171,7 +235,16 @@ bool sb_isset(sb_t* sb, sb_idx_t idx)
 		return false;
 	}
 
-	return node->mask & ((mask_t)1 << (idx - node->idx_start));
+	if ((idx - node->idx_start) < NUM_MASK_BITS) {
+		return node->mask & ((mask_t)1 << (idx - node->idx_start));
+	} else {
+		// Index of bit is within range of bits specified by setting of
+		// set_after and thus is set.
+		return true;
+	}
+
+	// NOT REACHED
+	assert(false);
 }
 
 sb_idx_t sb_firstset(sb_t* sb)
@@ -198,12 +271,29 @@ sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx)
 		return 0;
 	}
 
-	// Does node point to the node supporting idx? If so, is there
-	// another set bit within the mask beyond the mask bit for idx?
+	// Does node point to the node supporting idx?
 	if (node_supports_idx(node, idx)) {
-		for (unsigned int n = (idx - node->idx_start) + 1; n < NUM_MASK_BITS; n++) {
-			if (node->mask & ((mask_t)1 << n)) {
-				return node->idx_start + n;
+		// Is idx within the mask or part of the set_after range?
+		if ((idx - node->idx_start) < NUM_MASK_BITS) {
+			// Is there another set bit within the mask beyond the mask bit for the
+			// idx?
+			for (unsigned int n = (idx - node->idx_start) + 1;
+				n < NUM_MASK_BITS; n++) {
+				if (node->mask & ((mask_t)1 << n)) {
+					return node->idx_start + n;
+				}
+			}
+			// If there are any set_after bits, return the index of the first
+			// set_after bit.
+			if (node->set_after > 0) {
+				return node->idx_start + NUM_MASK_BITS;
+			}
+		} else {
+			// If there is another set_after bit beyond the one at idx,
+			// return the index of the next set_after bit.
+			if (((idx + 1) > idx) && ((idx + 1)
+				<= (node->idx_start + NUM_MASK_BITS + node->set_after - 1))) {
+				return idx + 1;
 			}
 		}
 
@@ -238,16 +328,46 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 		return 0;
 	}
 
+	// Is bit to be cleared described by nodes set_after value?
+	if ((idx - node->idx_start) >= NUM_MASK_BITS) {
+		node = node_split(sb, node, MASK_BOUNDARY(idx));
+		if (node == NULL) {
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
 	mask_t mask = (mask_t)1 << (idx - node->idx_start);
 	if (node->mask & mask) {
 		sb->num_set--;
+		node->mask &= ~mask;
 	}
-	node->mask &= ~mask;
 
-	// Delete the node when it no longer represents any set bits.
-	if (node->mask == 0) {
-		node_delete(sb, node);
+	// Are all the mask bits cleared?
+	if (!mask_any_set(node->mask)) {
+		node_t *next = node_next(node);;
+
+		// If no set_after bits, then just need to delete the node.
+		if (node->set_after == 0) {
+			node_delete(sb, node);
+			node = NULL;
+		} else {
+			// Node still has some set_after bits. Move up to NUM_MASK_BITS
+			// worth of set_after bits into the nodes mask.
+			assert(node->mask == 0);
+			assert((node->idx_start + NUM_MASK_BITS) > node->idx_start);
+			node->idx_start += NUM_MASK_BITS;
+			for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
+				&& (node->set_after > 0); bit_idx++) {
+				node->mask |= (mask_t)1 << bit_idx;
+				node->set_after--;
+			}
+		}
 	}
+
+	node_merge_adj_as_needed(sb, node);
+	node = node_find_or_next(sb, MASK_BOUNDARY(idx));
+	node_merge_adj_as_needed(sb, node);
 
 	return 0;
 }
@@ -287,15 +407,15 @@ bool sb_iscleared(sb_t* sb, sb_idx_t idx)
 sb_idx_t sb_firstcleared(sb_t* sb)
 {
 	if (sb->root != NULL) {
-		sb_idx_t prev_node_idx_start = (sb_idx_t)0 - NUM_MASK_BITS;
+		sb_idx_t prev_node_idx_end = (sb_idx_t)0 - 1;
 
 		// First gap in node starting index or a node with a mask that contains
 		// a cleared bit will determine the index of the first cleared bit.
 		for (node_t * node = node_minimum(sb->root); node != NULL;
 			node = node_next(node)) {
 			// Is there a gap in the node starting index.
-			if (node->idx_start != (prev_node_idx_start + NUM_MASK_BITS)) {
-				return prev_node_idx_start + NUM_MASK_BITS;
+			if (node->idx_start != (prev_node_idx_end + 1)) {
+				return prev_node_idx_end + 1;
 			}
 
 			if (node->mask != ~(mask_t)0) {
@@ -307,8 +427,10 @@ sb_idx_t sb_firstcleared(sb_t* sb)
 				assert(0);  // Cleared bit not found.
 			}
 
-			prev_node_idx_start = node->idx_start;
+			prev_node_idx_end = node->idx_start + NUM_MASK_BITS + node->set_after - 1;
 		}
+
+		return prev_node_idx_end + 1;
 	}
 
 	return 0;
@@ -336,9 +458,17 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
 		}
 	}
 
+	// No cleared bits in mask after mask bit for idx.
+	// Is there a cleared bit after bits described by next_set and the
+	// potential next node?
+	if ((node->set_after % NUM_MASK_BITS) != 0) {
+		return node->idx_start + NUM_MASK_BITS + node->set_after;
+	}
+
 	// Next cleared bit will be in the the next node with a cleared mask bit
 	// or first index supported by a gap in the node ranges.
-	for (sb_idx_t idx2 = idx - (idx % NUM_MASK_BITS) + NUM_MASK_BITS;
+	for (sb_idx_t idx2 = node->idx_start + node->set_after
+		+ (NUM_MASK_BITS - (node->set_after % NUM_MASK_BITS));
 		idx2 > idx; idx2 += NUM_MASK_BITS) {
 		node = node_find(sb, idx2);
 
@@ -355,6 +485,14 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
 				}
 				assert(0);  // Mask asyncronously changed.  No longer has a
 				            // cleared mask bit.
+			}
+
+			// Is there a gap between this and the next node.  If so, return
+			// index of last bit set in this node plus one.
+			node_t *node2 = node_next(node);
+			if ((node2 == NULL) || (node2->idx_start != (node->idx_start
+				+ NUM_MASK_BITS + node->set_after))) {
+				return node->idx_start + NUM_MASK_BITS + node->set_after;
 			}
 		}
 	}
@@ -436,7 +574,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 	if (sb->root == NULL) {
 		node = malloc(sizeof(node_t));
 		MEMCLEAR(node, sizeof(*node));
-		node->idx_start = idx - (idx % NUM_MASK_BITS);
+		node->idx_start = MASK_BOUNDARY(idx);
 		node_insert(sb, NULL, node);
 
 		sb->hint = node;
@@ -455,7 +593,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			node_t *child = malloc(sizeof(node_t));
 			if (child != NULL) {
 				MEMCLEAR(child, sizeof(*child));
-				child->idx_start = idx - (idx % NUM_MASK_BITS);
+				child->idx_start = MASK_BOUNDARY(idx);
 				node_insert(sb, parent, child);
 			}
 
@@ -473,7 +611,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			node_t *child = malloc(sizeof(node_t));
 			if (child != NULL) {
 				MEMCLEAR(child, sizeof(*child));
-				child->idx_start = idx - (idx % NUM_MASK_BITS);
+				child->idx_start = MASK_BOUNDARY(idx);
 				node_insert(sb, parent, child);
 			}
 
@@ -493,7 +631,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 static bool node_supports_idx(node_t *node, sb_idx_t idx)
 {
 	if ((idx >= node->idx_start)
-		&& (idx <= (node->idx_start + (NUM_MASK_BITS - 1))) ) {
+		&& (idx <= (node->idx_start + NUM_MASK_BITS + node->set_after - 1))) {
 		return true;
 	}
 
@@ -502,15 +640,7 @@ static bool node_supports_idx(node_t *node, sb_idx_t idx)
 
 static sb_num_t node_num_set(node_t *node)
 {
-	sb_num_t num = 0;
-
-	for (sb_idx_t n = 0; n < NUM_MASK_BITS; n++) {
-		if (node->mask & ((mask_t)1 << n)) {
-			num++;
-		}
-	}
-
-	return num;
+	return mask_num_set(node->mask) + node->set_after;
 }
 
 static int node_cmp(node_t *node1, node_t *node2)
@@ -756,11 +886,8 @@ static void node_insert(sb_t *sb, node_t *parent, node_t *node)
 	node->left = NULL;
 	node->right = NULL;
 	node->color = RED;
-	node_insert_fixup(sb, node);
-}
 
-static void node_insert_fixup(sb_t *sb, node_t *node)
-{
+	// Node Insert Fixup
 	assert(node->color == RED);  // Newly inserted nodes are always colored RED.
 	while (node->parent && node_grandparent(node)
 		&& (node->parent->color == RED)) {
@@ -771,7 +898,7 @@ static void node_insert_fixup(sb_t *sb, node_t *node)
 		assert(node->color == RED);
 		assert(node->parent->color == RED);
 		if (node->parent == grandparent->left) {
-			node_t *uncle = grandparent->right;
+			node_t *uncle = node_uncle(node);
 			if (uncle && uncle->color == RED) {  // Case 1 - Parent and uncle are
 			                                     //          both red.
 				node->parent->color = BLACK;
@@ -790,7 +917,7 @@ static void node_insert_fixup(sb_t *sb, node_t *node)
 				node_rotate_right(sb, node->parent->parent);
 			}
 		} else {
-			node_t *uncle = grandparent->left;
+			node_t *uncle = node_uncle(node);
 			if (uncle && uncle->color == RED) {  // Case 1
 				node->parent->color = BLACK;
 				uncle->color = BLACK;
@@ -939,6 +1066,20 @@ static void node_delete_fixup(sb_t *sb, node_t *node)
 	node->color = BLACK;
 }
 
+sb_num_t sb_nodes_num(sb_t *sb)
+{
+	sb_num_t num = 0;
+
+	if (sb->root != NULL) {
+		for (node_t *node = node_minimum(sb->root); node != NULL;
+			node = node_next(node)) {
+			num++;
+		}
+	}
+
+	return num;
+}
+
 // Returns NULL on sucess, otherwise returns a pointer to a dynamically
 // allocated error message.
 sb_pdynstr_t sb_validate(sb_t* sb)
@@ -956,8 +1097,61 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 
 	// For each node.
 	if (sb->root) {
+		node_t *prev = NULL;
 		for (node_t *node = node_minimum(sb->root); node != NULL;
 			node = node_next(node)) {
+			// Validate node start index is on a mask boundary.
+			if ((node->idx_start % NUM_MASK_BITS) != 0) {
+				return dyn_sprintf("Node start index not on mask boundary,\n"
+					"  node: %p idx_start: %#" SB_PRI_IDX " NUM_MASK_BITS: %u",
+					node, node->idx_start, NUM_MASK_BITS);
+			}
+
+			if (prev != NULL) {
+				// Validate current node has starting index greater than the
+				// previous node.
+				if (prev->idx_start >= node->idx_start) {
+					return dyn_sprintf("Node start index not greater than previous "
+						"node index,\n"
+						"  prev: %p prev->idx_start: %#" SB_PRI_IDX "\n"
+						"  node: %p node->idx_start: %#" SB_PRI_IDX "",
+						prev, prev->idx_start, node, node->idx_start);
+				}
+
+				// Validate a non-zero previous node set_after value doesn't
+				// cause the bits it supports to overlap with the start index
+				// of the current node.
+				if ((prev->idx_start + NUM_MASK_BITS + prev->set_after - 1)
+					>= node->idx_start) {
+					return dyn_sprintf("Previous node's set_after bits overlap with "
+						"the current node,\n"
+						"  NUM_MASK_BITS: %u\n"
+						"  prev: %p prev->idx_start: %#" SB_PRI_IDX
+						" prev->set_after: %#" SB_PRI_NUM "\n"
+						"  node: %p node->idx_start: %#" SB_PRI_IDX "",
+						NUM_MASK_BITS,
+						prev, prev->idx_start,
+						prev->set_after,
+						node, node->idx_start);
+				}
+				// Is this node adjacent to the mask or set_after bits of the
+				// previous node.  If so and this node has only leading mask bits,
+				// those bits should have been part of the prvious nodes set_after
+				// bits.
+				if (node_prev_adj(node) && mask_only_leading(node->mask)) {
+					return dyn_sprintf("Nodes leading bits should be part of "
+						"adjacent nodes set_after,\n"
+						"  prev: %p prev->idx_start: %#" SB_PRI_IDX
+						" prev->set_after: %#" SB_PRI_NUM "\n"
+						"  node: %p node->idx_start: %#" SB_PRI_IDX
+						" node->mask: %#018" NODE_PRI_MASK "\n",
+						prev, prev->idx_start,
+						prev->set_after,
+						node, node->idx_start,
+						node->mask);
+				}
+			}
+
 			// Is this a higher bud node?  Node where there is no child
 			// to the left or right.
 			if (node_is_bud(node) && ((highest_bud == NULL)
@@ -977,7 +1171,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 			// Nodes should only exist if they represent at least 1 set bit.
 			if (node_num_set(node) == 0) {
 				return dyn_sprintf("Node doesn't represent any set bits,\n"
-					"  node: %p mask: %#" SB_PRI_IDX,
+					"  node: %p mask: %#" NODE_PRI_MASK "",
 					node, node->mask);
 			}
 
@@ -1008,6 +1202,8 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 					first_bud = node;
 				}
 			}
+
+			prev = node;
 		}
 	}
 
@@ -1030,7 +1226,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 	// Is the sum of bits set across all the nodes equal to the total
 	// maintained in the sparsebit structure.
 	if (sum_pernode_set != sb->num_set) {
-		return dyn_sprintf("sb->num_set: %llu not equal to"
+		return dyn_sprintf("sb->num_set: %llu not equal to "
 			"sum_pernode_set: %llu", sb->num_set, sum_pernode_set);
 	}
 
@@ -1052,14 +1248,193 @@ sb_pdynstr_t sb_dump(sb_t* sb)
 	return rv_str;
 }
 
+static bool node_prev_adj(node_t *node)
+{
+	node_t *prev = node_prev(node);
+
+	if (prev != NULL) {
+		if ((prev->idx_start + NUM_MASK_BITS + prev->set_after)
+			== node->idx_start) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at)
+{
+	node_t *first = node;
+	node_t *second = malloc(sizeof(node_t));
+	if (second == NULL) {
+		return second;
+	}
+	MEMCLEAR(second, sizeof(*second));
+	second->idx_start = MASK_BOUNDARY(at);
+	second->set_after = first->set_after
+		- (second->idx_start - (first->idx_start + NUM_MASK_BITS));
+	first->set_after -= second->set_after;
+	for (unsigned int bit_idx = 0; (second->set_after > 0)
+		&& (bit_idx < NUM_MASK_BITS); bit_idx++) {
+		second->mask |= (mask_t)1 << bit_idx;
+		second->set_after--;
+	}
+
+	node_t *parent = sb->root;
+	while (parent != NULL) {
+		int cmp_rv = node_cmp_idx(parent, at);
+
+		assert(cmp_rv != 0);  // Only in this loop when second node, which
+		                      // has not been inserted yet, supports idx.  So
+		                      // no node should be found already within the
+		                      // sb->root tree, that supports that index.
+		if (cmp_rv > 0) {
+			if (parent->left == NULL) {
+				break;
+			}
+			parent = parent->left;
+		} else {
+			if (parent->right == NULL) {
+				break;
+			}
+			parent = parent->right;
+		}
+	}
+	node_insert(sb, parent, second);
+
+	sb->hint = second;
+	return second;
+}
+
+static void node_merge(sb_t *sb, node_t *prev, node_t *next)
+{
+	assert(node_prev_adj(next));
+	assert(mask_only_leading(next->mask));
+
+	if (next->mask == ~(mask_t)0) {
+		// Merge all of next node, both its mask and set_after bits, into
+		// the previous node.
+		prev->set_after += NUM_MASK_BITS + next->set_after;
+		node_delete(sb, next);
+	} else {
+		// Add next nodes contigously set leading mask bits
+		// to previous nodes set_after value.
+		for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+			if ((((mask_t)1 << n) & next->mask) != 0) {
+				prev->set_after++;
+			} else {
+				break;
+			}
+		}
+		next->mask = 0;
+		next->idx_start += NUM_MASK_BITS;
+
+		if (next->set_after > 0) {
+			for (unsigned int n = 0; (n < NUM_MASK_BITS)
+				&& (next->set_after > 0); n++) {
+				next->mask |= (mask_t)1 << n;
+				next->set_after--;
+			}
+		} else {
+			assert(next->mask == 0);
+			assert(next->set_after == 0);
+			node_delete(sb, next);
+		}
+	}
+}
+
+static void node_merge_adj_as_needed(sb_t  *sb, node_t *node)
+{
+	if (node == NULL) {
+		return;
+	}
+
+	// Do previous and current node need to be merged?
+	node_t *prev = node_prev(node);
+	if ((prev != NULL)
+		&& node_prev_adj(node) && mask_only_leading(node->mask)) {
+		node_merge(sb, prev, node);
+
+		node = node_next(prev);
+		// After merge the original node might no longer exist.  If it was
+		// the last node and no longer exists, then there are no further nodes
+		// to possibly merge.
+		if (node == NULL) {
+			return;
+		}
+	}
+
+	// Does current and next node need to be merged?
+	while (node != NULL) {
+		node_t *next = node_next(node);
+		if ((next != NULL) && mask_only_leading(next->mask)
+			&& node_prev_adj(next)) {
+			node_merge(sb, node, next);
+		} else {
+			break;
+		}
+		node = node_next(node);
+	}
+}
+
+static bool mask_any_set(mask_t mask)
+{
+	if (mask != 0) {
+		return true;
+	}
+
+	return false;
+}
+
+static unsigned int mask_num_set(mask_t mask)
+{
+	sb_num_t num = 0;
+
+	// TODO: Where available, use machine instruction that returns
+	// num set bits, otherwise use non-loop method described in the
+	// book Hacker's Delight.
+	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+		if (mask & ((mask_t)1 << n)) {
+			num++;
+		}
+	}
+
+	return num;
+}
+
+static bool mask_only_leading(mask_t mask)
+{
+	if ((mask != 0) && (((mask + 1) & (mask)) == 0)) {
+		return true;
+	}
+
+	return false;
+}
+
+static unsigned int mask_num_leading(mask_t mask)
+{
+	sb_num_t num = 0;
+
+	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+		if (mask & ((mask_t)1 << n)) {
+			num++;
+		} else {
+			break;
+		}
+	}
+
+	return num;
+}
+
 static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
 {
 	sb_pdynstr_t rv_str;
 
 	sb_pdynstr_t node_str = dyn_sprintf(
-		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#" SB_PRI_IDX "\n"
+		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#018" NODE_PRI_MASK
+		" set_after: %#" SB_PRI_NUM "\n"
 		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
-		indent, "", node, node->idx_start, node->mask,
+		indent, "", node, node->idx_start, node->mask, node->set_after,
 		indent, "", (node->color == RED) ? "RED  " : "BLACK",
 		node_depth(sb, node), node->parent, node->left, node->right);
 	sb_pdynstr_t left_str = NULL, right_str = NULL;
