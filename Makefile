@@ -46,9 +46,11 @@ libs: ./build/ ./target/lib/ ./target/lib/libsparsebit_c.a
 	gcc -c -std=c99 -o ./build/sparsebit_c.o sparsebit_c.c
 
 .PHONY: tests
-tests: ./target/ ./target/test_unit ./target/test_prand
+tests: ./target/ ./target/test_unit ./target/test_adjacent ./target/test_prand
 ./target/test_unit: ./test_unit.c ./target/lib/libsparsebit_c.a
 	gcc -std=c99 -D SB_TEST -o ./target/test_unit ./test_unit.c -L ./target/lib/ -l sparsebit_c -l cunit
+./target/test_adjacent: ./test_adjacent.c ./target/lib/libsparsebit_c.a
+	gcc -std=c99 -D SB_TEST -o ./target/test_adjacent ./test_adjacent.c -L ./target/lib/ -l sparsebit_c -l cunit
 ./target/test_prand: ./test_prand.c ./target/lib/libsparsebit_c.a
 	gcc -std=c99 -D SB_TEST -o ./target/test_prand ./test_prand.c -L ./target/lib/ -l sparsebit_c -l cunit
 
@@ -60,8 +62,10 @@ util: ./target/ ./target/util/ ./target/util/op_sieve
 .PHONY: smoketest
 smoketest: tests
 	./target/test_unit
+	./target/test_adjacent
 	./target/test_prand 0 999
 
 .PHONY: presubmit
 presubmit: smoketest
+	./target/test_adjacent -n4
 	./target/test_prand 0 99999

@@ -604,73 +604,100 @@ void test_set_after_then_clear_mask(void)
 	sb_delete(sb);
 }
 
-void test_adjacent(void)
+// Performs a sb_clearnum(), within a set of acjacent nodes, such
+// that the sb_clearnum() is performed where:
+//   + Start of sb_clearnum() range is in gap just before node with
+//     mask that will be cleared.
+//   + End of mask to be cleared is beyond highest set bit within the
+//     mask, but also still within that mask (e.g. before set_after
+//     bits of the node).
+//   + At least one bit described by the set_after value of the node
+//     whoses mask will be cleared.
+void test_adjacent_clear_across_mask(void)
 {
 	int rv;
 	sb_pdynstr_t err_string;
+	sb_num_t expected_nodes_num, actual_nodes_num;
+
+	size_t groups_num = 8;
+	sb_idx_t groups_idx_start = 0x1a75000;
+	sb_num_t groups_idx_stride = sb_mask_bits_min();
+
+	// Index of where to perform sb_clear(), within the chain of
+	// adjacent nodes.  Plus offset, from where sb_clear() was performed,
+	// and length for a sb_clearnum() operations.
+	size_t idx_clear = groups_idx_start + 3 * groups_idx_stride;
+	ssize_t clearnum_offset = -1;
+	sb_num_t clearnum_length = 0x42;
 
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
 
-	const sb_idx_t range_start = 0x1000;
-	const sb_num_t stride = 0x40;
-	const sb_num_t num = 20;
-	const sb_idx_t modify_idx[] = {
-		range_start,
-		range_start + 4 * stride,
-		range_start + 8 * stride,
-		range_start + 9 * stride,
-		range_start + 19 * stride,
-	};
+	for (unsigned int n = 0; n < groups_num; n++) {
+		sb_idx_t idx = groups_idx_start + n * groups_idx_stride;
 
-	// Set leading bit of each of the nodes.
-	for (sb_idx_t idx = range_start; idx < (range_start + num * stride); idx++) {
 		rv = sb_set(sb, idx);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
-
 		err_string = sb_validate(sb);
 		if (err_string) {
-			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+			fprintf(stderr, "Sparsebit Validate Failed001: %s\n", err_string);
 			fputs(sb_dump(sb), stderr);
-			CU_FAIL("Sparsebit - Inconsistent Internal State");
+			CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
 			sb_dynstr_free(err_string);
 		}
 	}
-
-	// Selectively clear some of the leading bits.
-	for (unsigned int n = 0; n < NUM(modify_idx); n++) {
-		rv = sb_clear(sb, modify_idx[n]);
-		CU_ASSERT_EQUAL_FATAL(rv, 0);
-
-		err_string = sb_validate(sb);
-		if (err_string) {
-			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
-			fputs(sb_dump(sb), stderr);
-			CU_FAIL("Sparsebit - Inconsistent Internal State");
-			sb_dynstr_free(err_string);
-		}
+	expected_nodes_num = groups_num / 2 + (groups_num % 2);
+	actual_nodes_num = sb_nodes_num(sb);
+	if (actual_nodes_num != expected_nodes_num) {
+		fprintf(stderr, "Unexpected number of nodes001:\n"
+			"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+			actual_nodes_num, expected_nodes_num);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Unexpected number of nodes001");
 	}
 
-	// Set back the setting of each of the cleared leading bits.
-	for (unsigned int n = 0; n < NUM(modify_idx); n++) {
-		rv = sb_set(sb, modify_idx[n]);
-		CU_ASSERT_EQUAL_FATAL(rv, 0);
-
-		err_string = sb_validate(sb);
-		if (err_string) {
-			fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
-			fputs(sb_dump(sb), stderr);
-			CU_FAIL("Sparsebit - Inconsistent Internal State");
-			sb_dynstr_free(err_string);
-		}
-	}
-
+	rv = sb_clear(sb, idx_clear);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
 	err_string = sb_validate(sb);
 	if (err_string) {
-		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fprintf(stderr, "Sparsebit Validate Failed003: %s\n", err_string);
 		fputs(sb_dump(sb), stderr);
-		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
 		sb_dynstr_free(err_string);
+	}
+	// Mask bit cleared within node that also has a set_after bit, so
+	// number of nodes should not change.
+	expected_nodes_num += 0;
+	actual_nodes_num = sb_nodes_num(sb);
+	if (actual_nodes_num != expected_nodes_num) {
+		fprintf(stderr, "Unexpected number of nodes002:\n"
+			"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+			actual_nodes_num, expected_nodes_num);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Unexpected number of nodes002");
+	}
+
+	rv = sb_clearnum(sb, idx_clear + clearnum_offset, clearnum_length);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+	err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed002: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL_FATAL("Sparsebit - Inconsistent Internal State");
+		sb_dynstr_free(err_string);
+	}
+	// The sb_clearnum() was done from a gap before a node's mask bits, to
+	// a bit beyond the bits set within the node's mask, yet still in that
+	// mask.  The node where the mask bits are cleared, also has set_after
+	// bits, which are not cleared, so number of nodes should not change.
+	expected_nodes_num += 0;
+	actual_nodes_num = sb_nodes_num(sb);
+	if (actual_nodes_num != expected_nodes_num) {
+		fprintf(stderr, "Unexpected number of nodes003:\n"
+			"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+			actual_nodes_num, expected_nodes_num);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Unexpected number of nodes003");
 	}
 
 	sb_delete(sb);
@@ -881,6 +908,9 @@ int main(void)
 	}
 
 	/* Add Tests */
+	// TODO: Optionally use positional command-line arguments, that are
+	//       regular expressions, to specify which tests are to be added.
+
 	if ((CU_add_test(pSuite, "create_delete", test_create_delete) == NULL)
 		|| (CU_add_test(pSuite, "set", test_set) == NULL)
 		|| (CU_add_test(pSuite, "clear", test_clear) == NULL)
@@ -895,7 +925,8 @@ int main(void)
 			test_set_after_clear_single) == NULL)
 		|| (CU_add_test(pSuite, "set_after_then_clear_mask",
 			test_set_after_then_clear_mask) == NULL)
-		|| (CU_add_test(pSuite, "adjacent", test_adjacent) == NULL)
+		|| (CU_add_test(pSuite, "adjacent_clear_across_mask",
+			test_adjacent_clear_across_mask) == NULL)
 		|| (CU_add_test(pSuite, "combinations4", test_combinations4) == NULL)
 		) {
 		CU_cleanup_registry();
