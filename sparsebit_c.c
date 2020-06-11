@@ -128,6 +128,63 @@ void sb_delete(sb_t* sb)
 	free(sb);
 }
 
+int sb_copy(sb_t *dest, const sb_t *src)
+{
+	// Nothing to do if source and destination are the same.
+	if (src == dest) {
+		return 0;
+	}
+
+	// Delete any nodes that current exist at destination.
+	while (dest->root) {
+		dest->root->mask = 0;
+		dest->root->set_after = 0;
+		node_delete(dest, dest->root);
+	}
+	dest->hint = NULL;
+	dest->num_set = 0;
+
+	// For each node in the source, create and add to source a
+	// duplicate of the node.
+	if (src->root != NULL) {
+		for (const node_t *node_src = node_minimum(src->root);
+			// TODO: create const version of node_next().
+			node_src != NULL; node_src = (const node_t *) node_next(
+				(node_t *) node_src)) {
+			node_t *node_dest = calloc(1, sizeof(node_t));
+
+			node_dest->idx_start = node_src->idx_start;
+			node_dest->mask = node_src->mask;
+			node_dest->set_after = node_src->set_after;
+
+			node_t *parent = dest->root;
+			while (parent != NULL) {
+				assert(!node_supports_idx(parent, node_dest->idx_start));
+				if (node_dest->idx_start < parent->idx_start) {
+					if (parent->left) {
+						parent = parent->left;
+						continue;
+					} else {
+						break;
+					}
+				} else {
+					if (parent->right) {
+						parent = parent->right;
+						continue;
+					} else {
+						break;
+					}
+				}
+			}
+
+			node_insert(dest, parent, node_dest);
+			dest->num_set += node_num_set(node_dest);
+		}
+	}
+
+	return 0;
+}
+
 // ==== Set Operations
 int sb_set(sb_t* sb, sb_idx_t idx)
 {
@@ -1076,6 +1133,18 @@ sb_num_t sb_nodes_num(sb_t *sb)
 	}
 
 	return num;
+}
+
+// Current implementation only has one type of node, which always
+// has a mask with NUM_MASK_BITS bits;
+sb_num_t sb_mask_bits_min(void)
+{
+	return NUM_MASK_BITS;
+}
+
+sb_num_t sb_mask_bits_max(void)
+{
+	return NUM_MASK_BITS;
 }
 
 // Returns NULL on sucess, otherwise returns a pointer to a dynamically

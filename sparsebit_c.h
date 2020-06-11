@@ -15,6 +15,7 @@
 
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 struct sb;  // Intentional incomplete structure definition.
@@ -31,6 +32,7 @@ typedef uint64_t sb_num_t;
 
 sb_t *sb_create(void);
 void sb_delete(sb_t* sb);
+int sb_copy(sb_t *dest, const sb_t *src);
 
 // ==== Set Operations ====
 int sb_set(sb_t* sb, sb_idx_t idx);
@@ -52,6 +54,8 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx);
 
 #ifdef SB_TEST
 sb_num_t sb_nodes_num(sb_t *sb);
+size_t sb_mask_bits_min(void);
+size_t sb_mask_bits_max(void);
 typedef char * sb_pdynstr_t;  // Dynamically allocated \0 terminated string.
                               // Caller is responsible for calling
                               // sb_dynstr_free() once caller is done
