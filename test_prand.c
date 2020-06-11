@@ -278,6 +278,7 @@ int main(int argc, char *argv[])
 						"QUERY_ANYSET Unexpected Any Set:\n"
 						"  actual: %i expected: %i\n",
 						pass, actual_bool, expected_bool);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(40);
 				}
@@ -292,6 +293,7 @@ int main(int argc, char *argv[])
 						"QUERY_NUMSET Unexpected Num Set:\n"
 						"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
 						pass, actual_num, expected_num);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(41);
 				}
@@ -306,6 +308,7 @@ int main(int argc, char *argv[])
 						"QUERY_ISSET Unexpected Is Set:\n"
 						"  actual: %i expected: %i idx: %#" SB_PRI_IDX "\n",
 						pass, actual_bool, expected_bool, idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(42);
 				}
@@ -320,6 +323,7 @@ int main(int argc, char *argv[])
 						"QUERY_FIRSTSET Unexpected First Set:\n"
 						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
 						pass, actual_idx, expected_idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(43);
 				}
@@ -335,6 +339,7 @@ int main(int argc, char *argv[])
 						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
 						" idx: %#" SB_PRI_IDX "\n",
 						pass, actual_idx, expected_idx, idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(44);
 				}
@@ -364,6 +369,7 @@ int main(int argc, char *argv[])
 						"QUERY_ANYCLEARED Unexpected Any Cleared:\n"
 						"  actual: %i expected: %i\n",
 						pass, actual_bool, expected_bool);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(50);
 				}
@@ -378,6 +384,7 @@ int main(int argc, char *argv[])
 						"QUERY_NUMCLEARED Unexpected Num Cleared:\n"
 						"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
 						pass, actual_num, expected_num);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(51);
 				}
@@ -392,6 +399,7 @@ int main(int argc, char *argv[])
 						"QUERY_ISCLEARED Unexpected Is Cleared:\n"
 						"  actual: %i expected: %i idx: %#" SB_PRI_IDX "\n",
 						pass, actual_bool, expected_bool, idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(52);
 				}
@@ -406,6 +414,7 @@ int main(int argc, char *argv[])
 						"QUERY_FIRSTCLEARED Unexpected First Cleared:\n"
 						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
 						pass, actual_idx, expected_idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(53);
 				}
@@ -421,6 +430,7 @@ int main(int argc, char *argv[])
 						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
 						" idx: %#" SB_PRI_IDX "\n",
 						pass, actual_idx, expected_idx, idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(54);
 				}
@@ -438,6 +448,7 @@ int main(int argc, char *argv[])
 			display_passed_passes(&passed_last_displayed, pass - 1);
 			fprintf(stderr, "Pass %li: Validation Error - "
 				"Inconsitent Internal State:\n%s\n", pass, err_string);
+			display_operations(stderr);
 			fputs(sb_dump(sb), stderr);
 			exit(31);
 		}
@@ -475,6 +486,7 @@ int main(int argc, char *argv[])
 				"Unexpected Num Bits Set:\n"
 				"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
 				pass, actual_num, expected_num);
+			display_operations(stderr);
 			fputs(sb_dump(sb), stderr);
 			exit(33);
 		}
@@ -488,6 +500,7 @@ int main(int argc, char *argv[])
 				"Unexpected First Set:\n"
 				"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
 				pass, actual_firstset, expected_idx);
+			display_operations(stderr);
 			fputs(sb_dump(sb), stderr);
 			exit(34);
 		}
@@ -518,6 +531,7 @@ int main(int argc, char *argv[])
 						"  idx1: %#" SB_PRI_IDX " actual: %#" SB_PRI_IDX
 						" expected: %#" SB_PRI_IDX "\n",
 						pass, idx1, actual, expected_idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(35);
 				}
@@ -550,6 +564,7 @@ int main(int argc, char *argv[])
 						"  idx1: %#" SB_PRI_IDX " actual: %#" SB_PRI_IDX
 						" expected: %#" SB_PRI_IDX "\n",
 						pass, idx1, actual, expected_idx);
+					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(36);
 				}
