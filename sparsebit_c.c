@@ -99,8 +99,6 @@ static void node_insert(sb_t *sb, node_t *parent, node_t *node);
 static void node_delete(sb_t *sb, node_t *node);
 static void node_delete_fixup(sb_t *sb, node_t *node);
 
-static sb_pdynstr_t dyn_sprintf(const char *format, ...);
-
 sb_t *sb_create(void)
 {
 	sb_t *p = malloc(sizeof(sb_t));
@@ -1091,7 +1089,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 
 	// When it exists, the root node should be BLACK.
 	if ((sb->root) && (sb->root->color != BLACK)) {
-		return dyn_sprintf("Root node (%p) color is not BLACK",
+		return sb_dyn_sprintf("Root node (%p) color is not BLACK",
 			sb->root->color);
 	}
 
@@ -1102,7 +1100,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 			node = node_next(node)) {
 			// Validate node start index is on a mask boundary.
 			if ((node->idx_start % NUM_MASK_BITS) != 0) {
-				return dyn_sprintf("Node start index not on mask boundary,\n"
+				return sb_dyn_sprintf("Node start index not on mask boundary,\n"
 					"  node: %p idx_start: %#" SB_PRI_IDX " NUM_MASK_BITS: %u",
 					node, node->idx_start, NUM_MASK_BITS);
 			}
@@ -1111,7 +1109,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 				// Validate current node has starting index greater than the
 				// previous node.
 				if (prev->idx_start >= node->idx_start) {
-					return dyn_sprintf("Node start index not greater than previous "
+					return sb_dyn_sprintf("Node start index not greater than previous "
 						"node index,\n"
 						"  prev: %p prev->idx_start: %#" SB_PRI_IDX "\n"
 						"  node: %p node->idx_start: %#" SB_PRI_IDX "",
@@ -1123,7 +1121,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 				// of the current node.
 				if ((prev->idx_start + NUM_MASK_BITS + prev->set_after - 1)
 					>= node->idx_start) {
-					return dyn_sprintf("Previous node's set_after bits overlap with "
+					return sb_dyn_sprintf("Previous node's set_after bits overlap with "
 						"the current node,\n"
 						"  NUM_MASK_BITS: %u\n"
 						"  prev: %p prev->idx_start: %#" SB_PRI_IDX
@@ -1139,7 +1137,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 				// those bits should have been part of the prvious nodes set_after
 				// bits.
 				if (node_prev_adj(node) && mask_only_leading(node->mask)) {
-					return dyn_sprintf("Nodes leading bits should be part of "
+					return sb_dyn_sprintf("Nodes leading bits should be part of "
 						"adjacent nodes set_after,\n"
 						"  prev: %p prev->idx_start: %#" SB_PRI_IDX
 						" prev->set_after: %#" SB_PRI_NUM "\n"
@@ -1170,7 +1168,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 
 			// Nodes should only exist if they represent at least 1 set bit.
 			if (node_num_set(node) == 0) {
-				return dyn_sprintf("Node doesn't represent any set bits,\n"
+				return sb_dyn_sprintf("Node doesn't represent any set bits,\n"
 					"  node: %p mask: %#" NODE_PRI_MASK "",
 					node, node->mask);
 			}
@@ -1178,11 +1176,11 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 			// Direct children of red nodes should not also be red.
 			if (node->color == RED) {
 				if (node->left && (node->left->color == RED)) {
-					return dyn_sprintf("Red node: %p has a left child node: %p\n"
+					return sb_dyn_sprintf("Red node: %p has a left child node: %p\n"
 						"that is also Red.", node, node->left);
 				}
 				if (node->right && (node->right->color == RED)) {
-					return dyn_sprintf("Red node: %p has a right child "
+					return sb_dyn_sprintf("Red node: %p has a right child "
 						"node: %p that is also Red.", node, node->right);
 				}
 			}
@@ -1194,7 +1192,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 				unsigned int this_depth_black = node_depth_black(node);
 				if (first_bud != NULL) {
 					if (this_depth_black != node_depth_black(first_bud)) {
-						return dyn_sprintf("Bud node: %p has a black depth of %u,\n"
+						return sb_dyn_sprintf("Bud node: %p has a black depth of %u,\n"
 							"  which is different from bud node: %p black depth of %u",
 							node, this_depth_black, first_bud, node_depth_black(first_bud));
 					}
@@ -1215,7 +1213,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 	if (highest_bud) {
 		if ((node_depth(sb, lowest_bud) + 1)
 			> (2 * (node_depth(sb, highest_bud) + 1))) {
-			return dyn_sprintf("lowest_node: %p at more than twice the\n"
+			return sb_dyn_sprintf("lowest_node: %p at more than twice the\n"
 				"  depth of the highest_bud: %p\n"
 				"  lowest_depth: %u hightest_depth: %u",
 				lowest_bud, highest_bud, node_depth(sb, lowest_bud) + 1,
@@ -1226,7 +1224,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 	// Is the sum of bits set across all the nodes equal to the total
 	// maintained in the sparsebit structure.
 	if (sum_pernode_set != sb->num_set) {
-		return dyn_sprintf("sb->num_set: %llu not equal to "
+		return sb_dyn_sprintf("sb->num_set: %llu not equal to "
 			"sum_pernode_set: %llu", sb->num_set, sum_pernode_set);
 	}
 
@@ -1237,11 +1235,11 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 // the current state of the sparsebit array pointed to by sb.
 sb_pdynstr_t sb_dump(sb_t* sb)
 {
-	sb_pdynstr_t rv_str = dyn_sprintf("sb: %p\n"
+	sb_pdynstr_t rv_str = sb_dyn_sprintf("sb: %p\n"
 		"root: %p num_set: %llu\n", sb, sb->root, sb->num_set);
 	if (sb->root) {
 		sb_pdynstr_t tmp_str = dump_subtree(sb, sb->root, 2);
-		rv_str = dyn_sprintf("%s%s", rv_str, tmp_str);
+		rv_str = sb_dyn_sprintf("%s%s", rv_str, tmp_str);
 		free(tmp_str);
 	}
 
@@ -1430,7 +1428,7 @@ static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
 {
 	sb_pdynstr_t rv_str;
 
-	sb_pdynstr_t node_str = dyn_sprintf(
+	sb_pdynstr_t node_str = sb_dyn_sprintf(
 		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#018" NODE_PRI_MASK
 		" set_after: %#" SB_PRI_NUM "\n"
 		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
@@ -1445,20 +1443,20 @@ static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
 		right_str = dump_subtree(sb, node->right, indent + 2);
 	}
 
-	rv_str = dyn_sprintf("%s%s%s", node_str,
+	rv_str = sb_dyn_sprintf("%s%s%s", node_str,
 		(left_str) ? left_str : "", (right_str) ? right_str : "");
-	sb_pdynstr_free(node_str);
+	sb_dynstr_free(node_str);
 	if (left_str) {
-		sb_pdynstr_free(left_str);
+		sb_dynstr_free(left_str);
 	}
 	if (right_str) {
-		sb_pdynstr_free(right_str);
+		sb_dynstr_free(right_str);
 	}
 
 	return rv_str;
 }
 
-static sb_pdynstr_t dyn_sprintf(const char *format, ...)
+sb_pdynstr_t sb_dyn_sprintf(const char *format, ...)
 {
 	int n;
 	size_t s_allocated;
@@ -1492,7 +1490,7 @@ static sb_pdynstr_t dyn_sprintf(const char *format, ...)
 	return s;
 }
 
-void sb_pdynstr_free(sb_pdynstr_t pdynstr)
+void sb_dynstr_free(sb_pdynstr_t pdynstr)
 {
 	free(pdynstr);
 }

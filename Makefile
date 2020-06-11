@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-all: libs tests
+all: libs tests util
 
 .PHONY: clean
 clean:  ## Remove build artifacts
@@ -34,6 +34,9 @@ clobber: clean  ## Remove built items and build artifacts
 ./target/lib/:
 	mkdir -p ./target/lib/
 
+./target/util/:
+	mkdir -p ./target/util/
+
 .PHONY: libs
 libs: ./build/ ./target/lib/ ./target/lib/libsparsebit_c.a
 ./target/lib/libsparsebit_c.a : ./target/lib/ ./build/sparsebit_c.o
@@ -48,6 +51,11 @@ tests: ./target/ ./target/test_unit ./target/test_prand
 	gcc -std=c99 -D SB_TEST -o ./target/test_unit ./test_unit.c -L ./target/lib/ -l sparsebit_c -l cunit
 ./target/test_prand: ./test_prand.c ./target/lib/libsparsebit_c.a
 	gcc -std=c99 -D SB_TEST -o ./target/test_prand ./test_prand.c -L ./target/lib/ -l sparsebit_c -l cunit
+
+.PHONY: util
+util: ./target/ ./target/util/ ./target/util/op_sieve
+./target/util/op_sieve: ./op_sieve.c ./target/lib/libsparsebit_c.a
+	gcc -g -std=c99 -D SB_TEST -o ./target/util/op_sieve ./op_sieve.c -L ./target/lib/ -l sparsebit_c
 
 .PHONY: smoketest
 smoketest: tests

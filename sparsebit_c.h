@@ -54,9 +54,10 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx);
 sb_num_t sb_nodes_num(sb_t *sb);
 typedef char * sb_pdynstr_t;  // Dynamically allocated \0 terminated string.
                               // Caller is responsible for calling
-                              // sb_pdynstr_free() once caller is done
+                              // sb_dynstr_free() once caller is done
                               // with the string.
-void sb_pdynstr_free(sb_pdynstr_t pdynstr);
+sb_pdynstr_t sb_dyn_sprintf(const char *format, ...);
+void sb_dynstr_free(sb_pdynstr_t pdynstr);
 sb_pdynstr_t sb_validate(sb_t* sb);
 sb_pdynstr_t sb_dump(sb_t* sb);
 #endif
