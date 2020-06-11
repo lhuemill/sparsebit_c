@@ -768,10 +768,11 @@ void test_combinations4(void)
 			sb_pdynstr_t err_string = sb_validate(sb);
 			if (err_string) {
 				fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+				fputs("Operations:\n", stderr);
 				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					printf("op %u do_set: %u idx: %#" SB_PRI_IDX
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
-						op_idx, operations[op_idx].do_set,
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
 						ranges[operations[op_idx].range_idx].num);
 				}
@@ -811,10 +812,11 @@ void test_combinations4(void)
 			bool actual_isset = sb_isset(sb, idx);
 			if (actual_isset != expected_isset) {
 				fputs("Error - Unexpected bit setting\n", stderr);
+				fputs("Operations:\n", stderr);
 				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "op %u do_set: %u idx: %#" SB_PRI_IDX
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
-						op_idx, operations[op_idx].do_set,
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
 						ranges[operations[op_idx].range_idx].num);
 				}
@@ -829,10 +831,11 @@ void test_combinations4(void)
 			sb_idx_t actual_nextset = sb_nextset(sb, idx);
 			if (actual_nextset != expected_nextset) {
 				fputs("Error - Unexpected next set\n", stderr);
+				fputs("Operations:\n", stderr);
 				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "op %u do_set: %u idx: %#" SB_PRI_IDX
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
-						op_idx, operations[op_idx].do_set,
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
 						ranges[operations[op_idx].range_idx].num);
 				}
@@ -848,10 +851,11 @@ void test_combinations4(void)
 			sb_idx_t actual_nextcleared = sb_nextcleared(sb, idx);
 			if (actual_nextcleared != expected_nextcleared) {
 				fputs("Error - Unexpected next cleared\n", stderr);
+				fputs("Operations:\n", stderr);
 				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "op %u do_set: %u idx: %#" SB_PRI_IDX
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
-						op_idx, operations[op_idx].do_set,
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
 						ranges[operations[op_idx].range_idx].num);
 				}
