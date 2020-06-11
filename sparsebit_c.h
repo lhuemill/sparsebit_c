@@ -36,7 +36,7 @@ int sb_copy(sb_t *dest, const sb_t *src);
 
 // ==== Set Operations ====
 int sb_set(sb_t* sb, sb_idx_t idx);
-int sb_setnum(sb_t* sb, sb_idx_t idx, sb_num_t num);
+int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num);
 bool sb_anyset(sb_t* sb);
 sb_num_t sb_numset(sb_t* sb);
 bool sb_isset(sb_t* sb, sb_idx_t idx);
@@ -45,7 +45,7 @@ sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx);
 
 // ==== Clear/Cleared Operations ====
 int sb_clear(sb_t* sb, sb_idx_t idx);
-int sb_clearnum(sb_t* sb, sb_idx_t idx, sb_num_t num);
+int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num);
 bool sb_anycleared(sb_t* sb);
 sb_num_t sb_numcleared(sb_t* sb);
 bool sb_iscleared(sb_t* sb, sb_idx_t idx);

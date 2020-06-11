@@ -12,18 +12,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/* TODO: Work-In-Progress
- *   Appears to be functionally correct (e.g. Passes all smoke tests).
- *   Following near-term improvements are anticipated:
- *     + Enhance sb_setnum() and sb_clearnum() to process a node
- *       worth of bits at a time, instead of a loop that processes
- *       1 of the num bits per pass.
- */
-
 #include <assert.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -76,10 +68,10 @@ static bool node_prev_adj(node_t *node);
 static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at);
 static void node_merge(sb_t *sb, node_t *prev, node_t *next);
 static void node_merge_adj_as_needed(sb_t  *sb, node_t *node);
+static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end);
 static bool mask_any_set(mask_t mask);
 static unsigned int mask_num_set(mask_t mask);
 static bool mask_only_leading(mask_t mask);
-static unsigned int mask_num_leading(mask_t mask);
 static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent);
 
 static bool node_is_bud(node_t *node);
@@ -101,27 +93,20 @@ static void node_delete_fixup(sb_t *sb, node_t *node);
 
 sb_t *sb_create(void)
 {
-	sb_t *p = malloc(sizeof(sb_t));
+	sb_t *p = calloc(1, sizeof(sb_t));
 	if (p == NULL) {
 		errno = ENOMEM;
 		return NULL;
 	}
-	MEMCLEAR(p, sizeof(*p));
 
 	return p;
 }
 
 void sb_delete(sb_t* sb)
 {
-	// TODO: Replace with:
-	//         sb_clearnum(sb, 0, ~(sb_num_t)0);
-	//         sb_clear(sb, SB_IDX_MAX);
-	//       once time complexity of sb_clearnum() is O(N),
-	//       where N is number of currently set bits to be cleared,
-	//       instead of the current implementation where N is the
-	//       value of the num parameter passed to sb_clearnum().
 	while (sb->root) {
 		sb->root->mask = 0;
+		sb->root->set_after = 0;
 		node_delete(sb, sb->root);
 	}
 
@@ -206,7 +191,9 @@ int sb_set(sb_t* sb, sb_idx_t idx)
 		if (idx == (node->idx_start + NUM_MASK_BITS + node->set_after)) {
 			node->set_after++;
 			sb->num_set++;
-			node_merge_adj_as_needed(sb, node);
+			node_adjacent_fixup(sb, idx, idx);
+
+			return 0;
 		}
 
 		// Gap between last bit set via node->set_after and index of bit
@@ -224,49 +211,119 @@ int sb_set(sb_t* sb, sb_idx_t idx)
 		node->mask |= mask;
 	}
 
-	if (node_prev_adj(node) && mask_only_leading(node->mask)) {
-		// Move this nodes leading-only mask bits, into previous nodes
-		// set_after.
-		node_t *prev = node_prev(node);
-		assert(prev != NULL);  // Within node_prev_adj(), so there should
-		                       // be a previous node.
-		unsigned int num_leading = mask_num_leading(node->mask);
-		if ((num_leading != NUM_MASK_BITS) && (node->set_after != 0)) {
-			// There is at least one cleared bit between the last set bit in
-			// the mask and a set bit described by a non-zero set_after value.
-			prev->set_after += num_leading;
-			node->idx_start += NUM_MASK_BITS;
-			node->mask = 0;
-			assert(node->set_after > 0);
-			for (unsigned int n = 0;
-				(node->set_after > 0) && (n < NUM_MASK_BITS); n++) {
-				node->mask |= (mask_t)1 << n;
-				node->set_after--;
-			}
-		} else {
-			prev->set_after += num_leading + node->set_after;
-			node_delete(sb, node);
-			return 0;
-		}
-	}
-
-	node_merge_adj_as_needed(sb, node);
+	node_adjacent_fixup(sb, idx, idx);
 
 	return 0;
 }
 
-int sb_setnum(sb_t* sb, sb_idx_t idx, sb_num_t num)
+int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 {
-	for (sb_num_t n = 0; n < num; n++) {
-		int rv = sb_set(sb, idx + n);
-		if (rv) {
-			return rv;
+	if (num == 0) {
+		return 0;
+	}
+
+	// Does range extended beyond the maximum index?
+	if ((idx_start + num - 1) < idx_start) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	node_t *node_start = node_find_or_create(sb, MASK_BOUNDARY(idx_start));
+	if (node_start == NULL) {
+		errno = ENOMEM;
+		return -1;
+	}
+	if (idx_start > (node_start->idx_start + NUM_MASK_BITS
+		+ node_start->set_after - 1)) {
+		node_start = node_split(sb, node_start, MASK_BOUNDARY(idx_start));
+		if (node_start == NULL) {
+			node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
+			errno = ENOMEM;
+
+			return -1;
 		}
 	}
 
+	sb_idx_t idx_end = idx_start + num - 1;
+	node_t *node_end = node_find_or_create(sb, MASK_BOUNDARY(idx_end));
+	if (node_end == NULL) {
+		// Was a new empty node for the start created?  If so, need to
+		// remove that empty node, before returning the ENOMEM indication
+		// for the end node.
+		if (node_num_set(node_start) == 0) {
+			node_delete(sb, node_start);
+		}
+		errno = ENOMEM;
+		return -1;
+	}
+	// TODO: Don't split if end can be handled by just increasing
+	//       the current node_end->set_after value.
+	if (node_end->idx_start != MASK_BOUNDARY(idx_end)) {
+		node_t *tmp = node_end;
+		node_end = node_split(sb, node_end, MASK_BOUNDARY(idx_end));
+		if (node_end == NULL) {
+			node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
+	// Remove any intermediate nodes, between the start and end nodes.
+	while ((node_start != node_end) && (node_next(node_start) != node_end)) {
+		node_t *node = node_next(node_start);
+		assert(sb->num_set >= node_num_set(node));
+		sb->num_set -= node_num_set(node);
+		node_delete(sb, node);
+	}
+
+	// As needed, set mask bits from the start until the next mask boundary.
+	sb_idx_t idx = idx_start;
+	while ((idx <= idx_end) && (idx >= idx_start)
+		&& ((idx - node_start->idx_start) < NUM_MASK_BITS)) {
+		unsigned int offset = idx - node_start->idx_start;
+		assert(offset < NUM_MASK_BITS);
+		mask_t mask = (mask_t)1 << offset;
+		if ((mask & node_start->mask) == 0) {
+			node_start->mask |= mask;
+			sb->num_set++;
+		}
+		idx++;
+	}
+
+	// As needed, handle bits from last mask boundary to ending index.
+	if (idx <= idx_end) {
+		idx = (node_end->idx_start > idx_start)
+			? node_end->idx_start : idx_start;
+		while ((idx <= idx_end) && (idx >= node_end->idx_start)
+			&& ((idx - node_end->idx_start) < NUM_MASK_BITS)) {
+			unsigned int offset = idx - node_end->idx_start;
+			assert(offset < NUM_MASK_BITS);
+			mask_t mask = (mask_t)1 << offset;
+			if ((mask & node_end->mask) == 0) {
+				node_end->mask |= mask;
+				sb->num_set++;
+			}
+			idx++;
+		}
+	}
+
+	// If needed, set all bits in gap between start and end nodes.
+	if (node_start != node_end) {
+		if ((node_start->idx_start + NUM_MASK_BITS + node_start->set_after)
+			!= node_end->idx_start) {
+				assert((node_start->idx_start + NUM_MASK_BITS + node_start->set_after)
+					< node_end->idx_start);
+				sb_num_t num = node_end->idx_start - (node_start->idx_start
+					+ NUM_MASK_BITS + node_start->set_after);
+				node_start->set_after += num;
+				sb->num_set += num;
+			}
+	}
+
+	node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
+
 	return 0;
 }
-
 
 bool sb_anyset(sb_t* sb)
 {
@@ -400,8 +457,6 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 
 	// Are all the mask bits cleared?
 	if (!mask_any_set(node->mask)) {
-		node_t *next = node_next(node);;
-
 		// If no set_after bits, then just need to delete the node.
 		if (node->set_after == 0) {
 			node_delete(sb, node);
@@ -420,21 +475,176 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 		}
 	}
 
-	node_merge_adj_as_needed(sb, node);
-	node = node_find_or_next(sb, MASK_BOUNDARY(idx));
-	node_merge_adj_as_needed(sb, node);
+	sb_idx_t next_set = sb_nextset(sb, idx);
+	next_set = (next_set == 0) ? SB_IDX_MAX : next_set;
+	node_adjacent_fixup(sb, idx, next_set);
 
 	return 0;
 }
 
-int sb_clearnum(sb_t* sb, sb_idx_t idx, sb_num_t num)
+int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 {
-	for (sb_num_t n = 0; n < num; n++) {
-		int rv = sb_clear(sb, idx + n);
-		if (rv) {
-			return rv;
+	if (num == 0) {
+		return 0;
+	}
+
+	// Does range extended beyond the maximum index?
+	sb_idx_t idx_end = idx_start + num - 1;
+	if ((idx_start + num - 1) < idx_start) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (sb->root == NULL) {
+		return 0;
+	}
+
+	node_t *node_start = node_find_or_next(sb, idx_start);
+	if (node_start == NULL) {
+		return 0;
+	}
+	if (node_start->idx_start > idx_end) {
+		return 0;
+	}
+	// Is idx_start part of the set_after portion of node_start?
+	// If so, split node_start so that idx_start is within the
+	// mask portion of a node.
+	if (node_supports_idx(node_start, idx_start)
+		&& (idx_start > (node_start->idx_start + NUM_MASK_BITS - 1))) {
+		node_start = node_split(sb, node_start, MASK_BOUNDARY(idx_start));
+		if (node_start == NULL) {
+			node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
+
+			errno = ENOMEM;
+			return -1;
 		}
 	}
+
+	node_t *node_end = node_find_or_next(sb, MASK_BOUNDARY(idx_end));
+	// Is idx_end part of the set_after portion of node_end?
+	// If so, split node_end so that idx_end is within the
+	// mask portion of a node.
+	if ((node_end != NULL) && node_supports_idx(node_end, MASK_BOUNDARY(idx_end))
+		&& (idx_end > (node_end->idx_start + NUM_MASK_BITS - 1))) {
+		node_end = node_split(sb, node_end, MASK_BOUNDARY(idx_end));
+		if (node_end == NULL) {
+			node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
+
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
+	// As needed, remove intermediate nodes between node_start and node_end.
+	while ((node_start != node_end) && (node_next(node_start) != node_end)) {
+		node_t *node = node_next(node_start);
+		assert(sb->num_set >= node_num_set(node));
+		sb->num_set -= node_num_set(node);
+		node_delete(sb, node);
+	}
+	// Remove node_start in cases where there is no node that supports
+	// idx_start and node_start doesn't point to the same node as the
+	// node that supports idx_end.  In such cases, node_start will point
+	// to the next node beyond where a node to support idx_start would be.
+	if ((node_start != node_end) && !node_supports_idx(node_start, idx_start)) {
+		assert(sb->num_set >= node_num_set(node_start));
+		sb->num_set -= node_num_set(node_start);
+		node_delete(sb, node_start);
+		node_start = node_end;
+		if (node_start == NULL) {
+			node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
+
+			return 0;
+		}
+	}
+
+	// As needed, clear mask bits from the start until the next mask boundary.
+	if ((idx_start >= node_start->idx_start)
+		&& (idx_start <= (node_start->idx_start + NUM_MASK_BITS - 1))) {
+		sb_idx_t idx = idx_start;
+		while ((idx <= idx_end) && (idx >= idx_start)
+			&& ((idx - node_start->idx_start) < NUM_MASK_BITS)) {
+			unsigned int offset = idx - node_start->idx_start;
+			assert(offset < NUM_MASK_BITS);
+			mask_t mask = (mask_t)1 << offset;
+			if ((mask & node_start->mask) != 0) {
+				node_start->mask &= ~mask;
+				sb->num_set--;
+				if (!mask_any_set(node_start->mask)) {
+					break;
+				}
+			}
+			idx++;
+		}
+		if ((node_start != node_end) && (node_start->set_after > 0)) {
+			assert(sb->num_set >= node_start->set_after);
+			sb->num_set -= node_start->set_after;
+			node_start->set_after = 0;
+		}
+		if (!mask_any_set(node_start->mask)) {
+			// If no set_after bits, then just need to delete the node.
+			if (node_start->set_after == 0) {
+				node_delete(sb, node_start);
+				if (node_end == node_start) {
+					node_end = NULL;
+				}
+				node_start = NULL;
+			} else {
+				// Node still has some set_after bits. Move up to NUM_MASK_BITS
+				// worth of set_after bits into the nodes mask.
+				assert(node_start->mask == 0);
+				assert((node_start->idx_start + NUM_MASK_BITS)
+					> node_start->idx_start);
+				node_start->idx_start += NUM_MASK_BITS;
+				for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
+					&& (node_start->set_after > 0); bit_idx++) {
+					node_start->mask |= (mask_t)1 << bit_idx;
+					node_start->set_after--;
+				}
+			}
+		}
+	}
+
+	// As needed, handle bits from last mask boundary to ending index.
+	if ((node_end != NULL)
+		&& ((node_start != node_end) || (idx_start < node_end->idx_start))) {
+		sb_idx_t idx = MASK_BOUNDARY(idx_end);
+		while ((idx <= idx_end) && (idx >= node_end->idx_start)
+			&& ((idx - node_end->idx_start) < NUM_MASK_BITS)) {
+			unsigned int offset = idx - node_end->idx_start;
+			assert(offset < NUM_MASK_BITS);
+			mask_t mask = (mask_t)1 << offset;
+			if ((mask & node_end->mask) != 0) {
+				node_end->mask &= ~mask;
+				sb->num_set--;
+			}
+			if (!mask_any_set(node_end->mask)) {
+				break;
+			}
+			idx++;
+		}
+		if (!mask_any_set(node_end->mask)) {
+			// If no set_after bits, then just need to delete the node.
+			if (node_end->set_after == 0) {
+				node_delete(sb, node_end);
+				node_end = NULL;
+			} else {
+				// Node still has some set_after bits. Move up to NUM_MASK_BITS
+				// worth of set_after bits into the nodes mask.
+				assert(node_end->mask == 0);
+				assert((node_end->idx_start + NUM_MASK_BITS)
+					> node_end->idx_start);
+				node_end->idx_start += NUM_MASK_BITS;
+				for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
+					&& (node_end->set_after > 0); bit_idx++) {
+					node_end->mask |= (mask_t)1 << bit_idx;
+					node_end->set_after--;
+				}
+			}
+		}
+	}
+
+	node_adjacent_fixup(sb, idx_start, idx_end);
 
 	return 0;
 }
@@ -627,8 +837,7 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 
 	// Create root node, if it doesn't already exist.
 	if (sb->root == NULL) {
-		node = malloc(sizeof(node_t));
-		MEMCLEAR(node, sizeof(*node));
+		node = calloc(1, sizeof(node_t));
 		node->idx_start = MASK_BOUNDARY(idx);
 		node_insert(sb, NULL, node);
 
@@ -645,9 +854,8 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			}
 
 			node_t *parent = node;
-			node_t *child = malloc(sizeof(node_t));
+			node_t *child = calloc(1, sizeof(node_t));
 			if (child != NULL) {
-				MEMCLEAR(child, sizeof(*child));
 				child->idx_start = MASK_BOUNDARY(idx);
 				node_insert(sb, parent, child);
 			}
@@ -663,9 +871,8 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 			}
 
 			node_t *parent = node;
-			node_t *child = malloc(sizeof(node_t));
+			node_t *child = calloc(1, sizeof(node_t));
 			if (child != NULL) {
-				MEMCLEAR(child, sizeof(*child));
 				child->idx_start = MASK_BOUNDARY(idx);
 				node_insert(sb, parent, child);
 			}
@@ -1332,11 +1539,10 @@ static bool node_prev_adj(node_t *node)
 static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at)
 {
 	node_t *first = node;
-	node_t *second = malloc(sizeof(node_t));
+	node_t *second = calloc(1, sizeof(node_t));
 	if (second == NULL) {
 		return second;
 	}
-	MEMCLEAR(second, sizeof(*second));
 	second->idx_start = MASK_BOUNDARY(at);
 	second->set_after = first->set_after
 		- (second->idx_start - (first->idx_start + NUM_MASK_BITS));
@@ -1408,40 +1614,69 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 			node_delete(sb, next);
 		}
 	}
+
+	node_t *next2 = node_next(prev);
+	if ((next2 != NULL) && node_prev_adj(next2)
+		&& mask_only_leading(next2->mask)) {
+		node_merge(sb, prev, next2);
+	}
 }
 
-static void node_merge_adj_as_needed(sb_t  *sb, node_t *node)
+static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end)
 {
-	if (node == NULL) {
+	node_t *node;
+
+	if (sb->root == NULL) {
 		return;
 	}
 
-	// Do previous and current node need to be merged?
-	node_t *prev = node_prev(node);
-	if ((prev != NULL)
-		&& node_prev_adj(node) && mask_only_leading(node->mask)) {
-		node_merge(sb, prev, node);
-
-		node = node_next(prev);
-		// After merge the original node might no longer exist.  If it was
-		// the last node and no longer exists, then there are no further nodes
-		// to possibly merge.
-		if (node == NULL) {
-			return;
+	// Determine last index that fixup needs to be checked for.
+	// If bit is set at caller specified idx_end, then just need
+	// to check nodes up to that address.  If bit at caller specified
+	// idx_end is not set, then need to check until index of next set
+	// bit, if it exists.  If it doesn't exist, because there is no set
+	// bit at or after idx_end, then just need to check to first set bit
+	// before idx_end, but will instead check until caller specified idx_end.
+	sb_idx_t fixup_end_idx = idx_end;
+	if (!sb_isset(sb, fixup_end_idx)) {
+		sb_idx_t next_idx = sb_nextset(sb, fixup_end_idx);
+		if (next_idx > fixup_end_idx) {
+			fixup_end_idx = next_idx;
 		}
 	}
 
-	// Does current and next node need to be merged?
-	while (node != NULL) {
+	node = node_find_or_next(sb, idx_start);
+	if (node != NULL) {
+		node_t *prev = node_prev(node);
+		if (prev != NULL) {
+			node = prev;
+		}
+	}
+	bool unconditional_process = true;
+	bool first_pass = true;
+	while ((node != NULL) && (unconditional_process
+			|| (node->idx_start <= ((fixup_end_idx != SB_IDX_MAX)
+				? (fixup_end_idx + 1) : SB_IDX_MAX))) ) {
+		unconditional_process = false;
 		node_t *next = node_next(node);
+
 		if ((next != NULL) && mask_only_leading(next->mask)
 			&& node_prev_adj(next)) {
 			node_merge(sb, node, next);
-		} else {
-			break;
+			unconditional_process = true;
 		}
+
+		if (first_pass) {
+			unconditional_process = true;
+			first_pass = false;
+		}
+
 		node = node_next(node);
 	}
+
+
+
+
 }
 
 static bool mask_any_set(mask_t mask)
@@ -1476,21 +1711,6 @@ static bool mask_only_leading(mask_t mask)
 	}
 
 	return false;
-}
-
-static unsigned int mask_num_leading(mask_t mask)
-{
-	sb_num_t num = 0;
-
-	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
-		if (mask & ((mask_t)1 << n)) {
-			num++;
-		} else {
-			break;
-		}
-	}
-
-	return num;
 }
 
 static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
