@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
 
 #define DEFAULT_NODES_NUM (3)
 #define DEFAULT_EDGE_MARGIN (1)
