@@ -39,8 +39,12 @@ clobber: clean  ## Remove built items and build artifacts
 
 .PHONY: libs
 libs: ./build/ ./target/lib/ ./target/lib/libsparsebit_c.a
+# Need to touch libsparsebit_c.a after it was created, so that its
+# last modification time is later than the last modification time of
+# the subdirectory containing it.
 ./target/lib/libsparsebit_c.a : ./target/lib/ ./build/sparsebit_c.o
 	ar rc ./target/lib/libsparsebit_c.a ./build/sparsebit_c.o
+	touch ./target/lib/libsparsebit_c.a
 
 ./build/sparsebit_c.o: ./build/ ./sparsebit_c.c ./sparsebit_c.h
 	gcc -c -std=c99 -o ./build/sparsebit_c.o sparsebit_c.c
