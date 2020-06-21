@@ -59,6 +59,7 @@ struct node {
 
 static node_t *node_find(sb_t *sb, sb_idx_t idx);
 static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx);
+static node_t *node_find_or_prev(sb_t *sb, sb_idx_t idx);
 static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx);
 static bool node_supports_idx(node_t *node, sb_idx_t idx);
 static sb_num_t node_num_set(node_t *node);
@@ -431,6 +432,57 @@ sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx)
 	return 0;
 }
 
+sb_idx_t sb_prevset(sb_t* sb, sb_idx_t idx)
+{
+	node_t *node = node_find_or_prev(sb, idx);
+
+	// No node with idx or a node prior that, so there is no previously set bit.
+	if (node == NULL) {
+		return 0;
+	}
+	sb->hint = node;
+
+	// Does node point to the node supporting idx?
+	if (node_supports_idx(node, idx)) {
+		// Is idx part of the node's set_after bits and not
+		// the first set_after bit?
+		if ((idx - node->idx_start) > NUM_MASK_BITS) {
+			return idx - 1;
+		}
+		// Idx is either the first set_after bit or within the node's mask.
+		// If present, return index of first set mask bit before the bit
+		// of idx.
+		for (int n = (idx - node->idx_start) - 1; n >= 0; n--) {
+			if (node->mask & ((mask_t)1 << n)) {
+				return node->idx_start + n;
+			}
+		}
+
+		// Node supports idx, but there are no mask bits before the mask bit for
+		// idx that are set. As such, previous set bit of idx will be the last
+		// set bit of the previous node.
+		node = node_prev(node);
+		if (node == NULL) {
+			return 0;
+		}
+	}
+
+	// The node pointer points to the first node supporting bits bits idx.
+	// If that node has any set after bits, return the index to the highest
+	// set after bit.  Otherwise return index of highest set mask bit.
+	if (node->set_after) {
+		return node->idx_start + NUM_MASK_BITS + node->set_after - 1;
+	}
+	for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
+		if (node->mask & ((mask_t)1 << n)) {
+			return node->idx_start + n;
+		}
+	}
+	assert(0);  // Node with no mask bits set.
+
+	return 0;
+}
+
 // ==== Clear/Cleared Operations
 int sb_clear(sb_t* sb, sb_idx_t idx)
 {
@@ -765,6 +817,96 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
 	return 0;
 }
 
+sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx)
+{
+	if (idx == 0) {
+		return 0;
+	}
+
+	node_t *node = node_find(sb, idx - 1);
+
+	if (node == NULL) {
+		// No node that supports idx - 1.
+		return idx - 1;
+	}
+	sb->hint = node;
+
+	// Node supports idx - 1.  Is there a cleared bit at or before the mask
+	// bit for idx - 1?
+	for (int n = (((idx - 1) - node->idx_start) >= NUM_MASK_BITS)
+		? NUM_MASK_BITS - 1
+		: (idx - 1) - node->idx_start; n >= 0; n--) {
+		if ((node->mask & ((mask_t)1 << n)) == 0) {
+			return node->idx_start + n;
+		}
+	}
+
+	// No cleared bit in mask before mask bit for idx - 1.
+	do {
+		node_t *prev = node_prev(node);
+
+		if (prev == NULL) {
+			return (node->idx_start != 0) ? node->idx_start - 1 : 0;
+		}
+
+		// If there is a gap between current and previous node, return
+		// starting index of current node minus 1.
+		if ((prev->idx_start + NUM_MASK_BITS + prev->set_after)
+			!= node->idx_start) {
+			assert((prev->idx_start + NUM_MASK_BITS + prev->set_after)
+				< node->idx_start);
+			return node->idx_start - 1;
+		}
+
+		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
+			if ((prev->mask & ((mask_t)1 << n)) == 0) {
+				return prev->idx_start + n;
+			}
+		}
+
+		node = prev;
+	} while (node != NULL);
+
+	// Is there a cleared bit after bits described by next_set and the
+	// potential next node?
+	if ((node->set_after % NUM_MASK_BITS) != 0) {
+		return node->idx_start + NUM_MASK_BITS + node->set_after;
+	}
+
+	// Next cleared bit will be in the the next node with a cleared mask bit
+	// or first index supported by a gap in the node ranges.
+	for (sb_idx_t idx2 = node->idx_start + node->set_after
+		+ (NUM_MASK_BITS - (node->set_after % NUM_MASK_BITS));
+		idx2 > idx; idx2 += NUM_MASK_BITS) {
+		node = node_find(sb, idx2);
+
+		if (node == NULL) {
+			// Gap in indexes supported by nodes.
+			return idx2;
+		} else {
+			// Any cleared bits in the node?
+			if (node->mask != ~(mask_t)0) {
+				for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+					if ((node->mask & ((mask_t)1 << n)) == 0) {
+						return node->idx_start + n;
+					}
+				}
+				assert(0);  // Mask asyncronously changed.  No longer has a
+				            // cleared mask bit.
+			}
+
+			// Is there a gap between this and the next node.  If so, return
+			// index of last bit set in this node plus one.
+			node_t *node2 = node_next(node);
+			if ((node2 == NULL) || (node2->idx_start != (node->idx_start
+				+ NUM_MASK_BITS + node->set_after))) {
+				return node->idx_start + NUM_MASK_BITS + node->set_after;
+			}
+		}
+	}
+	return 0;
+}
+
 // ==== Sparsebit Node Operations ====
 static node_t *node_find(sb_t *sb, sb_idx_t idx)
 {
@@ -815,6 +957,42 @@ static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx)
 		} else {
 			if (node->right == NULL) {
 				node = node_next(node);
+				sb->hint = node;
+				return node;
+			}
+
+			node = node->right;
+		}
+	}
+	sb->hint = node;
+
+	return node;
+}
+
+static node_t *node_find_or_prev(sb_t *sb, sb_idx_t idx)
+{
+	node_t *node;
+
+	if ((sb->hint != NULL) && node_supports_idx(sb->hint, idx)) {
+		return sb->hint;
+	}
+
+	node = sb->root;
+	while ((node != NULL) && (!node_supports_idx(node, idx))) {
+		int cmp_rv = node_cmp_idx(node, idx);
+
+		assert(cmp_rv != 0);  // Only in this loop when node doesn't support idx,
+		                      // so why does node->idx_start == idx?
+		if (cmp_rv > 0) {
+			if (node->left == NULL) {
+				node = node_prev(node);
+				sb->hint = node;
+				return node;
+			}
+
+			node = node->left;
+		} else {
+			if (node->right == NULL) {
 				sb->hint = node;
 				return node;
 			}

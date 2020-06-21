@@ -377,6 +377,105 @@ void test_first_next_cleared(void)
 	sb_delete(sb);
 }
 
+void test_prev_set(void)
+{
+	int rv;
+	sb_idx_t idx;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set some bits, including ones at the lowest and highest indexes.
+	sb_idx_t idx_set[] = {
+		0, 1, 2,
+		68, 512, 1024 - 1,
+		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
+	};
+	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+		rv = sb_set(sb, idx_set[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+	}
+
+	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+		sb_idx_t expected_rv = (idx_set[n] == 0) ? 0 : idx_set[n - 1];
+		sb_idx_t actual_rv = sb_prevset(sb, idx_set[n]);
+		if (actual_rv != expected_rv) {
+			fprintf(stderr, "Unexpected sb_prevset rv,\n"
+				"  n: %u idx_set[n]: %#" SB_PRI_IDX "\n"
+				"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
+				n, idx_set[n], actual_rv, expected_rv);
+			CU_ASSERT_EQUAL(actual_rv, expected_rv);
+		}
+	}
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_dynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+void test_prev_cleared(void)
+{
+	int rv;
+	sb_idx_t idx;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set significant number of bits starting at lowest index and ending
+	// at highest index.
+	sb_num_t set_num = 3000;
+	rv = sb_setnum(sb, 0, set_num);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+	rv = sb_setnum(sb, SB_IDX_MAX - set_num + 1, set_num);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+	// Clear some bits, including ones at the lowest and highest indexes.
+	sb_idx_t idx_cleared[] = {
+		0, 1, 2,
+		196, 444, 2048 - 1, 2048,
+		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
+	};
+	for (unsigned int n = 0; n < NUM(idx_cleared); n++) {
+		rv = sb_clear(sb, idx_cleared[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+	}
+
+	for (unsigned int n = 0; n < NUM(idx_cleared); n++) {
+		sb_idx_t expected_rv = (n > 0) ? idx_cleared[n - 1] : 0;
+		if ((n >= 1)
+			&& (idx_cleared[n - 1] < (SB_IDX_MAX - set_num + 1))
+			&& (idx_cleared[n] >= (SB_IDX_MAX - set_num + 1)) ) {
+			expected_rv = SB_IDX_MAX - set_num;
+		}
+		sb_idx_t actual_rv = sb_prevcleared(sb, idx_cleared[n]);
+
+		if (actual_rv != expected_rv) {
+				fprintf(stderr, "Unexpected sb_prevcleared rv,\n"
+					"  n: %u idx_cleared[n]: %#" SB_PRI_IDX "\n"
+					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
+					n, idx_cleared[n], actual_rv, expected_rv);
+				CU_ASSERT_EQUAL(actual_rv, expected_rv);
+		}
+	}
+
+	sb_pdynstr_t err_string = sb_validate(sb);
+	if (err_string) {
+		fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
+		fputs(sb_dump(sb), stderr);
+		CU_FAIL("Sparsebit - Inconsistent Internal State");
+		sb_dynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+
 // Sets then clears 6 bits in all possible orders/permutations.  The bits
 // indexes are sufficiently seperated such that the state of each bit
 // will be maintained by its own node.  The primary purpose of this test
@@ -783,15 +882,15 @@ void test_combinations4(void)
 			}
 		}
 
-		// Validate setting of each bit, along with nextset and nextcleared,
-		// from each bit in the ranges.
+		// Validate setting of each bit, along with nextset, nextcleared,
+		// prevset, and prevcleared for each bit in the ranges.
 		for (unsigned int n1 = 0; n1 < (range_max - range_min + 1); n1++) {
 			sb_idx_t idx = range_min + n1;
 
 			bool expected_isset = expected[n1];
 
 			sb_idx_t expected_nextset = 0;
-			unsigned int n2;
+			int n2;
 			for (n2 = (idx - range_min) + 1; n2 < (range_max - range_min + 1); n2++) {
 				if (expected[n2]) {
 					expected_nextset = range_min + n2;
@@ -808,6 +907,22 @@ void test_combinations4(void)
 			}
 			if (n2 == (range_max - range_min + 1)) {
 				expected_nextcleared = range_max + 1;
+			}
+
+			sb_idx_t expected_prevset = 0;
+			for (n2 = (idx - range_min) - 1; n2 >= 0; n2--) {
+				if (expected[n2]) {
+					expected_prevset = range_min + n2;
+					break;
+				}
+			}
+
+			sb_idx_t expected_prevcleared = (range_min == 0) ? 0 : range_min - 1;
+			for (n2 = (idx - range_min) - 1; n2 >= 0; n2--) {
+				if (!expected[n2]) {
+					expected_prevcleared = range_min + n2;
+					break;
+				}
 			}
 
 			bool actual_isset = sb_isset(sb, idx);
@@ -868,6 +983,46 @@ void test_combinations4(void)
 
 				CU_FAIL_FATAL("Unexpected Next Cleared Index");
 			}
+
+			sb_idx_t actual_prevset = sb_prevset(sb, idx);
+			if (actual_prevset != expected_prevset) {
+				fputs("Error - Unexpected previous set\n", stderr);
+				fputs("Operations:\n", stderr);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fprintf(stderr,
+					"idx: %#" SB_PRI_IDX " actual_prevset: %#" SB_PRI_IDX
+					" expected_prevset: %#" SB_PRI_IDX "\n",
+					idx, actual_prevset, expected_prevset);
+				fputs(sb_dump(sb), stderr);
+
+				CU_FAIL_FATAL("Unexpected Previous Set Index");
+			}
+
+			sb_idx_t actual_prevcleared = sb_prevcleared(sb, idx);
+			if (actual_prevcleared != expected_prevcleared) {
+				fputs("Error - Unexpected previous cleared\n", stderr);
+				fputs("Operations:\n", stderr);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fprintf(stderr,
+					"idx: %#" SB_PRI_IDX " actual_prevcleared: %#" SB_PRI_IDX
+					" expected_prevcleared: %#" SB_PRI_IDX "\n",
+					idx, actual_prevcleared, expected_prevcleared);
+				fputs(sb_dump(sb), stderr);
+
+				CU_FAIL_FATAL("Unexpected Previous Cleared Index");
+			}
 		}
 
 		sb_delete(sb);
@@ -924,6 +1079,8 @@ int main(void)
 		|| (CU_add_test(pSuite, "first_next_set", test_first_next_set) == NULL)
 		|| (CU_add_test(pSuite, "first_next_cleared", test_first_next_cleared)
 			== NULL)
+		|| (CU_add_test(pSuite, "prev_set", test_prev_set) == NULL)
+		|| (CU_add_test(pSuite, "prev_cleared", test_prev_cleared) == NULL)
 		|| (CU_add_test(pSuite, "permutations6", test_permutations6) == NULL)
 		|| (CU_add_test(pSuite, "set_after_single", test_set_after_single) == NULL)
 		|| (CU_add_test(pSuite, "set_after_clear_single",

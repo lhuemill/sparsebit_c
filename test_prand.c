@@ -60,11 +60,13 @@ enum OP {
 	QUERY_ISSET,
 	QUERY_FIRSTSET,
 	QUERY_NEXTSET,
+	QUERY_PREVSET,
 	QUERY_ANYCLEARED,
 	QUERY_NUMCLEARED,
 	QUERY_ISCLEARED,
 	QUERY_FIRSTCLEARED,
 	QUERY_NEXTCLEARED,
+	QUERY_PREVCLEARED,
 };
 struct op_str {
 	enum OP op;
@@ -79,11 +81,13 @@ struct op_str {
 	{QUERY_ISSET, "QUERY_ISSET"},
 	{QUERY_FIRSTSET, "QUERY_FIRSTSET"},
 	{QUERY_NEXTSET, "QUERY_NEXTSET"},
+	{QUERY_PREVSET, "QUERY_PREVSET"},
 	{QUERY_ANYCLEARED, "QUERY_ANYCLEARED"},
 	{QUERY_NUMCLEARED, "QUERY_NUMCLEARED"},
 	{QUERY_ISCLEARED, "QUERY_ISCLEARED"},
 	{QUERY_FIRSTCLEARED, "QUERY_FIRSTCLEARED"},
 	{QUERY_NEXTCLEARED, "QUERY_NEXTCLEARED"},
+	{QUERY_PREVCLEARED, "QUERY_PREVCLEARED"},
 };
 #define OP_TYPE_FIRST (op_strings[0].op)
 #define OP_TYPE_LAST (op_strings[NUM(op_strings) - 1].op)
@@ -109,8 +113,10 @@ static bool expected_isset(sb_idx_t idx);
 static sb_num_t expected_numset(void);
 static sb_idx_t expected_firstset(void);
 static sb_idx_t expected_nextset(sb_idx_t start_idx);
+static sb_idx_t expected_prevset(sb_idx_t start_idx);
 static sb_idx_t expected_firstcleared(void);
 static sb_idx_t expected_nextcleared(sb_idx_t start_idx);
+static sb_idx_t expected_prevcleared(sb_idx_t start_idx);
 
 int main(int argc, char *argv[])
 {
@@ -345,6 +351,22 @@ int main(int argc, char *argv[])
 				}
 				break;
 
+			case QUERY_PREVSET:
+				expected_idx = expected_prevset(idx);
+				actual_idx = sb_prevset(sb, idx);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_PREVSET Unexpected Previous Set:\n"
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
+						" idx: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx, idx);
+					display_operations(stderr);
+					fputs(sb_dump(sb), stderr);
+					exit(45);
+				}
+				break;
+
 			case CLEAR_BIT:
 				sb_clear(sb, idx);
 				test_ranges[p_op->range_idx].expected[p_op->offset] = false;
@@ -433,6 +455,22 @@ int main(int argc, char *argv[])
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(54);
+				}
+				break;
+
+			case QUERY_PREVCLEARED:
+				expected_idx = expected_prevcleared(idx);
+				actual_idx = sb_prevcleared(sb, idx);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_PREVCLEARED Unexpected Previous Cleared:\n"
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
+						" idx: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx, idx);
+					display_operations(stderr);
+					fputs(sb_dump(sb), stderr);
+					exit(55);
 				}
 				break;
 
@@ -758,6 +796,26 @@ static sb_idx_t expected_nextset(sb_idx_t start_idx)
 	return 0;
 }
 
+static sb_idx_t expected_prevset(sb_idx_t start_idx)
+{
+	for (int range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
+		struct test_range *p_range = &test_ranges[range_idx];
+
+		if (p_range->start_idx >= start_idx) { continue; }
+		for (int bit_idx = NUM(p_range->expected) - 1; bit_idx >= 0; bit_idx--) {
+			sb_idx_t idx = p_range->start_idx + bit_idx;
+			if (idx >= start_idx) {
+				continue;
+			}
+			if (p_range->expected[bit_idx]) {
+				return idx;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static sb_idx_t expected_firstcleared(void)
 {
 	if (test_ranges[0].start_idx != 0) {
@@ -841,4 +899,35 @@ static sb_idx_t expected_nextcleared(sb_idx_t start_idx)
 	}
 	
 	return 0;
+}
+
+static sb_idx_t expected_prevcleared(sb_idx_t start_idx)
+{
+	for (int range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
+		struct test_range *p_range = &test_ranges[range_idx];
+
+		if (p_range->start_idx > start_idx) { continue; }
+		for (int bit_idx = NUM(p_range->expected) - 1; bit_idx >= 0; bit_idx--) {
+			sb_idx_t idx = p_range->start_idx + bit_idx;
+			if (idx >= start_idx) {
+				continue;
+			}
+			if (!p_range->expected[bit_idx]) {
+				return idx;
+			}
+		}
+		// If gap between current and previous range, return index of highest
+		// bit in the gap.
+		if (range_idx >= 1) {
+			struct test_range *p_range_prev = &test_ranges[range_idx - 1];
+			if ((p_range_prev->start_idx + NUM(p_range_prev->expected))
+				< p_range->start_idx) {
+					assert(p_range->start_idx >= 1);
+					return p_range->start_idx - 1;
+			}
+		}
+	}
+	
+	return (test_ranges[0].start_idx >= 1)
+		? test_ranges[0].start_idx - 1 : 0;
 }

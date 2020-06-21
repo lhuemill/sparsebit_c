@@ -42,6 +42,7 @@ sb_num_t sb_numset(sb_t* sb);
 bool sb_isset(sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_firstset(sb_t* sb);
 sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_prevset(sb_t* sb, sb_idx_t idx);
 
 // ==== Clear/Cleared Operations ====
 int sb_clear(sb_t* sb, sb_idx_t idx);
@@ -51,6 +52,7 @@ sb_num_t sb_numcleared(sb_t* sb);
 bool sb_iscleared(sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_firstcleared(sb_t* sb);
 sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx);
 
 #ifdef SB_TEST
 sb_num_t sb_nodes_num(sb_t *sb);
