@@ -42,11 +42,13 @@ enum OP {
 	QUERY_ISSET,
 	QUERY_FIRSTSET,
 	QUERY_NEXTSET,
+	QUERY_PREVSET,
 	QUERY_ANYCLEARED,
 	QUERY_NUMCLEARED,
 	QUERY_ISCLEARED,
 	QUERY_FIRSTCLEARED,
 	QUERY_NEXTCLEARED,
+	QUERY_PREVCLEARED,
 };
 
 struct op_trait {
@@ -62,11 +64,13 @@ struct op_trait {
 	{QUERY_ISSET, "QUERY_ISSET"},
 	{QUERY_FIRSTSET, "QUERY_FIRSTSET"},
 	{QUERY_NEXTSET, "QUERY_NEXTSET"},
+	{QUERY_PREVSET, "QUERY_PREVSET"},
 	{QUERY_ANYCLEARED, "QUERY_ANYCLEARED"},
 	{QUERY_NUMCLEARED, "QUERY_NUMCLEARED"},
 	{QUERY_ISCLEARED, "QUERY_ISCLEARED"},
 	{QUERY_FIRSTCLEARED, "QUERY_FIRSTCLEARED"},
 	{QUERY_NEXTCLEARED, "QUERY_NEXTCLEARED"},
+	{QUERY_PREVCLEARED, "QUERY_PREVCLEARED"},
 };
 
 struct operation {
@@ -84,11 +88,13 @@ static void perform_operations(sb_t *sb);
 static sb_pdynstr_t validate(sb_t *sb);
 static sb_idx_t ops_ranges_idx_first(void);
 static sb_idx_t ops_ranges_idx_next(sb_idx_t idx);
-static bool ops_perform_any(void);
+static bool ops_performed_any(void);
 static bool ops_expected_isset(sb_idx_t idx);
 static sb_num_t ops_expected_numset(void);
 static sb_idx_t ops_expected_nextset(sb_idx_t idx_start);
 static sb_idx_t ops_expected_nextcleared(sb_idx_t idx_start);
+static sb_idx_t ops_expected_prevset(sb_idx_t idx_start);
+static sb_idx_t ops_expected_prevcleared(sb_idx_t idx_start);
 
 int main(void)
 {
@@ -327,6 +333,10 @@ static void perform_operations(sb_t *sb)
 				(void) sb_nextset(sb, idx);
 				break;
 
+			case QUERY_PREVSET:
+				(void) sb_prevset(sb, idx);
+				break;
+
 			case CLEAR_BIT:
 				sb_clear(sb, idx);
 				break;
@@ -352,6 +362,10 @@ static void perform_operations(sb_t *sb)
 
 			case QUERY_NEXTCLEARED:
 				(void) sb_nextcleared(sb, idx);
+				break;
+
+			case QUERY_PREVCLEARED:
+				(void) sb_prevcleared(sb, idx);
 				break;
 
 			default:
@@ -422,6 +436,35 @@ sb_pdynstr_t validate(sb_t *sb)
 		idx_edge = ops_ranges_idx_next(idx_edge);
 	} while (idx_edge != 0);
 
+	// Validate sb_prevset() and sb_prevcleared().
+	idx_edge = ops_ranges_idx_first();
+	do {
+		for (int offset = -1; offset <= 1; offset++) {
+			sb_idx_t idx = idx_edge + offset;
+
+			sb_idx_t expected_prevset = ops_expected_prevset(idx);
+			sb_idx_t expected_prevcleared = ops_expected_prevcleared(idx);
+
+			sb_idx_t actual_prevset = sb_prevset(sb, idx);
+			sb_idx_t actual_prevcleared = sb_prevcleared(sb, idx);
+
+			if (actual_prevset != expected_prevset) {
+				return sb_dyn_sprintf("Unexpected prevset,\n"
+					"  idx: %#" SB_PRI_IDX " actual: %#" SB_PRI_IDX
+					" expected: %#" SB_PRI_IDX,
+					idx, actual_prevset, expected_prevset);
+			}
+
+			if (actual_prevcleared != expected_prevcleared) {
+				return sb_dyn_sprintf("Unexpected prevcleared,\n"
+					"  idx: %#" SB_PRI_IDX " actual: %#" SB_PRI_IDX
+					" expected: %#" SB_PRI_IDX,
+					idx, actual_prevcleared, expected_prevcleared);
+			}
+		}
+		idx_edge = ops_ranges_idx_next(idx_edge);
+	} while (idx_edge != 0);
+
 	return NULL;
 }
 
@@ -477,7 +520,7 @@ static sb_idx_t ops_ranges_idx_next(sb_idx_t idx)
 	return (found) ? next_idx : 0;
 }
 
-static bool ops_perform_any(void)
+static bool ops_performed_any(void)
 {
 	for (struct operation *opptr = operations;
 		opptr < operations + operations_num; opptr++) {
@@ -575,7 +618,7 @@ static sb_idx_t ops_expected_nextset(sb_idx_t idx_start)
 
 static sb_idx_t ops_expected_nextcleared(sb_idx_t idx_start)
 {
-	if (!ops_perform_any()) {
+	if (!ops_performed_any()) {
 		return idx_start + 1;
 	}
 
@@ -607,4 +650,66 @@ static sb_idx_t ops_expected_nextcleared(sb_idx_t idx_start)
 	} while (idx_edge != 0);
 
 	return 0;
+}
+
+static sb_idx_t ops_expected_prevset(sb_idx_t idx_start)
+{
+	sb_idx_t idx_rv = 0;
+
+	sb_idx_t idx_edge = ops_ranges_idx_first();
+	do {
+		for (int offset = -1; offset <= 1; offset++) {
+			sb_idx_t idx = idx_edge + offset;
+			if ((offset > 0) && (idx < idx_edge)) {
+				continue;
+			}
+			if ((offset < 0) && (idx > idx_edge)) {
+				continue;
+			}
+			if (idx >= idx_start) { break; }
+
+			if (ops_expected_isset(idx)) {
+				if (idx > idx_rv) {
+					idx_rv = idx;
+				}
+			}
+		}
+
+		idx_edge = ops_ranges_idx_next(idx_edge);
+	} while (idx_edge != 0);
+
+	return idx_rv;
+}
+
+static sb_idx_t ops_expected_prevcleared(sb_idx_t idx_start)
+{
+	sb_idx_t idx_rv = 0;
+
+	if (idx_start == 0) { return 0; }
+	if (!ops_expected_isset(idx_start - 1)) { idx_rv = idx_start - 1; }
+
+	sb_idx_t idx_edge = ops_ranges_idx_first();
+	do {
+		for (int offset = -1; offset <= 1; offset++) {
+			sb_idx_t idx = idx_edge + offset;
+			if ((offset > 0) && (idx < idx_edge)) {
+				continue;
+			}
+			if ((offset < 0) && (idx > idx_edge)) {
+				continue;
+			}
+
+			if (idx >= idx_start) { break; }
+
+			if (!ops_expected_isset(idx)) {
+				if (idx > idx_rv) {
+					idx_rv = idx;
+				}
+			}
+		}
+
+		idx_edge = ops_ranges_idx_next(idx_edge);
+	} while (idx_edge != 0);
+
+	return idx_rv;
 }
