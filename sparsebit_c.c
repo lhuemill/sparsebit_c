@@ -61,7 +61,12 @@ static node_t *node_find(sb_t *sb, sb_idx_t idx);
 static node_t *node_find_or_next(sb_t *sb, sb_idx_t idx);
 static node_t *node_find_or_prev(sb_t *sb, sb_idx_t idx);
 static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx);
-static bool node_supports_idx(node_t *node, sb_idx_t idx);
+static const node_t *node_find_const(const sb_t *sb_const, sb_idx_t idx);
+static const node_t *node_find_or_next_const(const sb_t *sb_const,
+	sb_idx_t idx);
+static const node_t *node_find_or_prev_const(const sb_t *sb_const,
+	sb_idx_t idx);
+static bool node_supports_idx(const node_t *node, sb_idx_t idx);
 static sb_num_t node_num_set(node_t *node);
 static int node_cmp(node_t *node1, node_t *node2);
 static int node_cmp_idx(node_t *node, sb_idx_t idx);
@@ -73,11 +78,12 @@ static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end);
 static bool mask_any_set(mask_t mask);
 static unsigned int mask_num_set(mask_t mask);
 static bool mask_only_leading(mask_t mask);
-static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent);
+static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
+	unsigned int indent);
 
 static bool node_is_bud(node_t *node);
-static unsigned int node_depth(sb_t *sb, node_t *node);
-static unsigned int node_depth_black(node_t *node);
+static unsigned int node_depth(const node_t *node);
+static unsigned int node_depth_black(const node_t *node);
 static node_t *node_sibling(node_t *node);
 static node_t *node_grandparent(node_t *node);
 static node_t *node_uncle(node_t *node);
@@ -85,6 +91,10 @@ static node_t *node_minimum(node_t *node);
 static node_t *node_maximum(node_t *node);
 static node_t *node_next(node_t *node);
 static node_t *node_prev(node_t *node);
+static const node_t *node_minimum_const(const node_t *nodep_const);
+static const node_t *node_maximum_const(const node_t *nodep_const);
+static const node_t *node_next_const(const node_t *nodep_const);
+static const node_t *node_prev_const(const node_t *nodep_const);
 static void node_rotate_left(sb_t *sb, node_t *x);
 static void node_rotate_right(sb_t *sb, node_t *x);
 static void node_transplant(sb_t *sb, node_t *u, node_t *v);
@@ -326,7 +336,7 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	return 0;
 }
 
-bool sb_anyset(sb_t* sb)
+bool sb_anyset(const sb_t* sb)
 {
 	if (sb->root) {
 		return true;
@@ -335,14 +345,14 @@ bool sb_anyset(sb_t* sb)
 	return false;
 }
 
-sb_num_t sb_numset(sb_t* sb)
+sb_num_t sb_numset(const sb_t* sb)
 {
 	return sb->num_set;
 }
 
-bool sb_isset(sb_t* sb, sb_idx_t idx)
+bool sb_isset(const sb_t* sb, sb_idx_t idx)
 {
-	node_t *node = node_find(sb, idx);
+	const node_t *node = node_find_const(sb, idx);
 
 	if (node == NULL) {
 		return false;
@@ -360,7 +370,7 @@ bool sb_isset(sb_t* sb, sb_idx_t idx)
 	assert(false);
 }
 
-sb_idx_t sb_firstset(sb_t* sb)
+sb_idx_t sb_firstset(const sb_t* sb)
 {
 	if (sb->root != NULL) {
 		node_t *node = node_minimum(sb->root);
@@ -375,9 +385,9 @@ sb_idx_t sb_firstset(sb_t* sb)
 	return 0;
 }
 
-sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx)
+sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
 {
-	node_t *node = node_find_or_next(sb, idx);
+	const node_t *node = node_find_or_next_const(sb, idx);
 
 	// No node with idx or a node after that, so there is no next set bit.
 	if (node == NULL) {
@@ -413,7 +423,7 @@ sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx)
 		// Node supports idx, but there are no mask bits beyond the mask bit for
 		// idx that are set. As such, next set bit beyond idx will be the first
 		// set bit in the next node.
-		node = node_next(node);
+		node = node_next_const(node);
 		if (node == NULL) {
 			return 0;
 		}
@@ -432,15 +442,15 @@ sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx)
 	return 0;
 }
 
-sb_idx_t sb_prevset(sb_t* sb, sb_idx_t idx)
+sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx)
 {
-	node_t *node = node_find_or_prev(sb, idx);
+	const node_t *node = node_find_or_prev_const(sb, idx);
 
 	// No node with idx or a node prior that, so there is no previously set bit.
 	if (node == NULL) {
 		return 0;
 	}
-	sb->hint = node;
+	((sb_t *)sb)->hint = (node_t *) node;
 
 	// Does node point to the node supporting idx?
 	if (node_supports_idx(node, idx)) {
@@ -461,7 +471,7 @@ sb_idx_t sb_prevset(sb_t* sb, sb_idx_t idx)
 		// Node supports idx, but there are no mask bits before the mask bit for
 		// idx that are set. As such, previous set bit of idx will be the last
 		// set bit of the previous node.
-		node = node_prev(node);
+		node = node_prev_const(node);
 		if (node == NULL) {
 			return 0;
 		}
@@ -701,7 +711,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	return 0;
 }
 
-bool sb_anycleared(sb_t* sb)
+bool sb_anycleared(const sb_t* sb)
 {
 	// sb_numcleared() returns 0 both when all bits are set and all bits
 	// are cleared, because there are a total of ~(sb_num_t)0 + 1 bits.
@@ -710,18 +720,17 @@ bool sb_anycleared(sb_t* sb)
 		|| ((sb->root != NULL) && (sb->num_set != 0));
 }
 
-sb_num_t sb_numcleared(sb_t* sb)
+sb_num_t sb_numcleared(const sb_t* sb)
 {
 	return (sb_num_t)0 - sb->num_set;
 }
 
-
-bool sb_iscleared(sb_t* sb, sb_idx_t idx)
+bool sb_iscleared(const sb_t* sb, sb_idx_t idx)
 {
 	return !sb_isset(sb, idx);
 }
 
-sb_idx_t sb_firstcleared(sb_t* sb)
+sb_idx_t sb_firstcleared(const sb_t* sb)
 {
 	if (sb->root != NULL) {
 		sb_idx_t prev_node_idx_end = (sb_idx_t)0 - 1;
@@ -753,13 +762,13 @@ sb_idx_t sb_firstcleared(sb_t* sb)
 	return 0;
 }
 
-sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
+sb_idx_t sb_nextcleared(const sb_t* sb, sb_idx_t idx)
 {
 	if (idx == SB_IDX_MAX) {
 		return 0;
 	}
 
-	node_t *node = node_find(sb, idx + 1);
+	const node_t *node = node_find_const(sb, idx + 1);
 
 	if (node == NULL) {
 		// No node that supports idx.
@@ -787,7 +796,7 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
 	for (sb_idx_t idx2 = node->idx_start + node->set_after
 		+ (NUM_MASK_BITS - (node->set_after % NUM_MASK_BITS));
 		idx2 > idx; idx2 += NUM_MASK_BITS) {
-		node = node_find(sb, idx2);
+		node = node_find_const(sb, idx2);
 
 		if (node == NULL) {
 			// Gap in indexes supported by nodes.
@@ -806,7 +815,7 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
 
 			// Is there a gap between this and the next node.  If so, return
 			// index of last bit set in this node plus one.
-			node_t *node2 = node_next(node);
+			const node_t *node2 = node_next_const(node);
 			if ((node2 == NULL) || (node2->idx_start != (node->idx_start
 				+ NUM_MASK_BITS + node->set_after))) {
 				return node->idx_start + NUM_MASK_BITS + node->set_after;
@@ -817,19 +826,19 @@ sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx)
 	return 0;
 }
 
-sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx)
+sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 {
 	if (idx == 0) {
 		return 0;
 	}
 
-	node_t *node = node_find(sb, idx - 1);
+	const node_t *node = node_find_const(sb, idx - 1);
 
 	if (node == NULL) {
 		// No node that supports idx - 1.
 		return idx - 1;
 	}
-	sb->hint = node;
+	((sb_t *)sb)->hint = (node_t *)node;
 
 	// Node supports idx - 1.  Is there a cleared bit at or before the mask
 	// bit for idx - 1?
@@ -843,7 +852,7 @@ sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx)
 
 	// No cleared bit in mask before mask bit for idx - 1.
 	do {
-		node_t *prev = node_prev(node);
+		const node_t *prev = node_prev_const(node);
 
 		if (prev == NULL) {
 			return (node->idx_start != 0) ? node->idx_start - 1 : 0;
@@ -878,7 +887,7 @@ sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx)
 	for (sb_idx_t idx2 = node->idx_start + node->set_after
 		+ (NUM_MASK_BITS - (node->set_after % NUM_MASK_BITS));
 		idx2 > idx; idx2 += NUM_MASK_BITS) {
-		node = node_find(sb, idx2);
+		node = node_find_const(sb, idx2);
 
 		if (node == NULL) {
 			// Gap in indexes supported by nodes.
@@ -897,7 +906,7 @@ sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx)
 
 			// Is there a gap between this and the next node.  If so, return
 			// index of last bit set in this node plus one.
-			node_t *node2 = node_next(node);
+			const node_t *node2 = node_next_const(node);
 			if ((node2 == NULL) || (node2->idx_start != (node->idx_start
 				+ NUM_MASK_BITS + node->set_after))) {
 				return node->idx_start + NUM_MASK_BITS + node->set_after;
@@ -1068,7 +1077,21 @@ static node_t *node_find_or_create(sb_t *sb, sb_idx_t idx)
 	return node;
 }
 
-static bool node_supports_idx(node_t *node, sb_idx_t idx)
+static const node_t *node_find_const(const sb_t *sb_const, sb_idx_t idx) {
+	return (const node_t *) node_find((sb_t *) sb_const, idx);
+}
+
+static const node_t *node_find_or_next_const(const sb_t *sb_const, sb_idx_t idx)
+{
+	return (const node_t *) node_find_or_next((sb_t *) sb_const, idx);
+}
+
+static const node_t *node_find_or_prev_const(const sb_t *sb_const, sb_idx_t idx)
+{
+	return (const node_t *) node_find_or_prev((sb_t *) sb_const, idx);
+}
+
+static bool node_supports_idx(const node_t *node, sb_idx_t idx)
 {
 	if ((idx >= node->idx_start)
 		&& (idx <= (node->idx_start + NUM_MASK_BITS + node->set_after - 1))) {
@@ -1118,11 +1141,11 @@ static bool node_is_bud(node_t *node)
 	return false;
 }
 
-static unsigned int node_depth(sb_t *sb, node_t *node)
+static unsigned int node_depth(const node_t *node)
 {
 	unsigned int depth = 0;
 
-	node_t *p = node;
+	const node_t *p = node;
 	while (p->parent) {
 		p = p->parent;
 		depth++;
@@ -1131,7 +1154,7 @@ static unsigned int node_depth(sb_t *sb, node_t *node)
 	return depth;
 }
 
-static unsigned int node_depth_black(node_t *node)
+static unsigned int node_depth_black(const node_t *node)
 {
 	unsigned int depth_black = 0;
 
@@ -1225,6 +1248,27 @@ static node_t *node_prev(node_t *node)
 
 	return y;
 }
+
+static const node_t *node_minimum_const(const node_t *nodep_const)
+{
+	return (const node_t *) node_minimum((node_t *) nodep_const);
+}
+
+static const node_t *node_maximum_const(const node_t *nodep_const)
+{
+	return (const node_t *) node_maximum((node_t *) nodep_const);
+}
+
+static const node_t *node_next_const(const node_t *nodep_const)
+{
+	return (const node_t *) node_next((node_t *) nodep_const);
+}
+
+static const node_t *node_prev_const(const node_t *nodep_const)
+{
+	return (const node_t *) node_prev((node_t *) nodep_const);
+}
+
 
 //              |                               |             
 //            +---+                           +---+               
@@ -1506,13 +1550,13 @@ static void node_delete_fixup(sb_t *sb, node_t *node)
 	node->color = BLACK;
 }
 
-sb_num_t sb_nodes_num(sb_t *sb)
+sb_num_t sb_nodes_num(const sb_t *sb)
 {
 	sb_num_t num = 0;
 
 	if (sb->root != NULL) {
-		for (node_t *node = node_minimum(sb->root); node != NULL;
-			node = node_next(node)) {
+		for (const node_t *node = node_minimum_const(sb->root); node != NULL;
+			node = node_next_const(node)) {
 			num++;
 		}
 	}
@@ -1534,7 +1578,7 @@ sb_num_t sb_mask_bits_max(void)
 
 // Returns NULL on sucess, otherwise returns a pointer to a dynamically
 // allocated error message.
-sb_pdynstr_t sb_validate(sb_t* sb)
+sb_pdynstr_t sb_validate(const sb_t* sb)
 {
 	sb_num_t sum_pernode_set = 0;
 	node_t *highest_bud = NULL;
@@ -1607,13 +1651,13 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 			// Is this a higher bud node?  Node where there is no child
 			// to the left or right.
 			if (node_is_bud(node) && ((highest_bud == NULL)
-				|| (node_depth(sb, node) < node_depth(sb, highest_bud))) ) {
+				|| (node_depth(node) < node_depth(highest_bud))) ) {
 				highest_bud = node;
 			}
 
 			// Is this a lower bud node?
 			if (node_is_bud(node) && ((lowest_bud == NULL)
-				|| (node_depth(sb, node) > node_depth(sb, lowest_bud))) ) {
+				|| (node_depth(node) > node_depth(lowest_bud))) ) {
 				lowest_bud = node;
 			}
 
@@ -1665,13 +1709,13 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 	// the highest and lowest bud nodes, bud nodes have a leaf or leaves,
 	// so need to add 1 to get the depth of the leaf attached to a bud node.
 	if (highest_bud) {
-		if ((node_depth(sb, lowest_bud) + 1)
-			> (2 * (node_depth(sb, highest_bud) + 1))) {
+		if ((node_depth(lowest_bud) + 1)
+			> (2 * (node_depth(highest_bud) + 1))) {
 			return sb_dyn_sprintf("lowest_node: %p at more than twice the\n"
 				"  depth of the highest_bud: %p\n"
 				"  lowest_depth: %u hightest_depth: %u",
-				lowest_bud, highest_bud, node_depth(sb, lowest_bud) + 1,
-				node_depth(sb, highest_bud) + 1);
+				lowest_bud, highest_bud, node_depth(lowest_bud) + 1,
+				node_depth(highest_bud) + 1);
 		}
 	}
 
@@ -1687,7 +1731,7 @@ sb_pdynstr_t sb_validate(sb_t* sb)
 
 // Returns a pointer to a dynamically allocated string, that represents
 // the current state of the sparsebit array pointed to by sb.
-sb_pdynstr_t sb_dump(sb_t* sb)
+sb_pdynstr_t sb_dump(const sb_t* sb)
 {
 	sb_pdynstr_t rv_str = sb_dyn_sprintf("sb: %p\n"
 		"root: %p num_set: %llu\n", sb, sb->root, sb->num_set);
@@ -1891,7 +1935,8 @@ static bool mask_only_leading(mask_t mask)
 	return false;
 }
 
-static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
+static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
+	unsigned int indent)
 {
 	sb_pdynstr_t rv_str;
 
@@ -1901,7 +1946,7 @@ static sb_pdynstr_t dump_subtree(sb_t *sb, node_t *node, unsigned int indent)
 		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
 		indent, "", node, node->idx_start, node->mask, node->set_after,
 		indent, "", (node->color == RED) ? "RED  " : "BLACK",
-		node_depth(sb, node), node->parent, node->left, node->right);
+		node_depth(node), node->parent, node->left, node->right);
 	sb_pdynstr_t left_str = NULL, right_str = NULL;
 	if (node->left) {
 		left_str = dump_subtree(sb, node->left, indent + 2);

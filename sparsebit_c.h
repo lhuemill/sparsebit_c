@@ -37,25 +37,25 @@ int sb_copy(sb_t *dest, const sb_t *src);
 // ==== Set Operations ====
 int sb_set(sb_t* sb, sb_idx_t idx);
 int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num);
-bool sb_anyset(sb_t* sb);
-sb_num_t sb_numset(sb_t* sb);
-bool sb_isset(sb_t* sb, sb_idx_t idx);
-sb_idx_t sb_firstset(sb_t* sb);
-sb_idx_t sb_nextset(sb_t* sb, sb_idx_t idx);
-sb_idx_t sb_prevset(sb_t* sb, sb_idx_t idx);
+bool sb_anyset(const sb_t* sb);
+sb_num_t sb_numset(const sb_t* sb);
+bool sb_isset(const sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_firstset(const sb_t* sb);
+sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx);
 
 // ==== Clear/Cleared Operations ====
 int sb_clear(sb_t* sb, sb_idx_t idx);
 int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num);
-bool sb_anycleared(sb_t* sb);
-sb_num_t sb_numcleared(sb_t* sb);
-bool sb_iscleared(sb_t* sb, sb_idx_t idx);
-sb_idx_t sb_firstcleared(sb_t* sb);
-sb_idx_t sb_nextcleared(sb_t* sb, sb_idx_t idx);
-sb_idx_t sb_prevcleared(sb_t* sb, sb_idx_t idx);
+bool sb_anycleared(const sb_t* sb);
+sb_num_t sb_numcleared(const sb_t* sb);
+bool sb_iscleared(const sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_firstcleared(const sb_t* sb);
+sb_idx_t sb_nextcleared(const sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx);
 
 #ifdef SB_TEST
-sb_num_t sb_nodes_num(sb_t *sb);
+sb_num_t sb_nodes_num(const sb_t *sb);
 size_t sb_mask_bits_min(void);
 size_t sb_mask_bits_max(void);
 typedef char * sb_pdynstr_t;  // Dynamically allocated \0 terminated string.
@@ -64,6 +64,6 @@ typedef char * sb_pdynstr_t;  // Dynamically allocated \0 terminated string.
                               // with the string.
 sb_pdynstr_t sb_dyn_sprintf(const char *format, ...);
 void sb_dynstr_free(sb_pdynstr_t pdynstr);
-sb_pdynstr_t sb_validate(sb_t* sb);
-sb_pdynstr_t sb_dump(sb_t* sb);
+sb_pdynstr_t sb_validate(const sb_t* sb);
+sb_pdynstr_t sb_dump(const sb_t* sb);
 #endif
