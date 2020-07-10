@@ -345,6 +345,20 @@ bool sb_anyset(const sb_t* sb)
 	return false;
 }
 
+bool sb_allset(const sb_t* sb)
+{
+	if (sb->root && (sb->num_set == 0)) {
+		assert(sb->root->idx_start == 0);
+		assert(sb->root->mask == ~((mask_t) 0));
+		assert(sb->root->set_after == (((sb_num_t) 0) - NUM_MASK_BITS));
+		assert(sb->root->left == NULL);
+		assert(sb->root->right == NULL);
+		return true;
+	}
+
+	return false;
+}
+
 sb_num_t sb_numset(const sb_t* sb)
 {
 	return sb->num_set;
@@ -491,6 +505,40 @@ sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx)
 	assert(0);  // Node with no mask bits set.
 
 	return 0;
+}
+
+// On success returns index of zero-based Nth set bit.
+// When there are not enough set bits, errno is set equal to ESRCH
+// and an index of 0 is returned.
+sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth)
+{
+	if ((nth >= sb_numset(sb)) && !sb_allset(sb)) {
+		errno = ESRCH;
+		return 0;
+	}
+
+	sb_num_t num = 0;
+	sb_idx_t idx;
+
+	for (idx = sb_firstset(sb); nth > num; idx = sb_nextset(sb, idx)) {
+		num++;
+
+		// Jump by as much as a nodes set_after value when current idx is
+		// specified by a nodes set_after value.
+		const node_t *node = node_find_const(sb, idx + 1);
+		assert(node != NULL);
+		if ((idx - node->idx_start) >= NUM_MASK_BITS) {
+			sb_num_t jump_max = (node->idx_start + NUM_MASK_BITS + node->set_after
+				- 1) - idx;
+			sb_num_t jump_amt = ((nth - num) > jump_max) ? jump_max : nth - num;
+			num += jump_amt;
+			idx += jump_amt;
+		}
+	}
+	assert(nth == num);  // If failed, was state of sb asyncronously
+	                     // modified by another thread?
+
+	return idx;
 }
 
 // ==== Clear/Cleared Operations

@@ -38,11 +38,13 @@ int sb_copy(sb_t *dest, const sb_t *src);
 int sb_set(sb_t* sb, sb_idx_t idx);
 int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num);
 bool sb_anyset(const sb_t* sb);
+bool sb_allset(const sb_t* sb);
 sb_num_t sb_numset(const sb_t* sb);
 bool sb_isset(const sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_firstset(const sb_t* sb);
 sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx);
+sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth);
 
 // ==== Clear/Cleared Operations ====
 int sb_clear(sb_t* sb, sb_idx_t idx);

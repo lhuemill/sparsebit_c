@@ -18,6 +18,7 @@
                           // within sparsebit_c.h.
 
 #include <assert.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -470,6 +471,159 @@ void test_prev_cleared(void)
 		fputs(sb_dump(sb), stderr);
 		CU_FAIL("Sparsebit - Inconsistent Internal State");
 		sb_dynstr_free(err_string);
+	}
+
+	sb_delete(sb);
+}
+
+void test_nthset(void)
+{
+	int rv;
+	sb_idx_t idx;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set some bits, including ones at the lowest and highest indexes.
+	sb_idx_t idx_set[] = {
+		0, 2, 5, 6,
+		63, 64, 65,
+		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
+	};
+	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+		rv = sb_set(sb, idx_set[n]);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+	}
+
+	// For number of set bits, plus 3 more.  The 3 more, are to validate
+	// behavior when asking for the index of the Nth bit, beyond the number
+	// of set bits.
+	for (unsigned int n = 0; n < NUM(idx_set) + 3; n++) {
+		sb_idx_t expected_rv = (n < NUM(idx_set)) ? idx_set[n] : 0;
+
+		// Set errno to a magic value dependent on the current value of n.
+		// On success, errno value should be unchanged.  On failure, it should
+		// get set to ESRCH.
+		error_t errno_magic = 0x7a2c ^ n;
+		error_t expected_errno = (n < NUM(idx_set)) ? errno_magic : ESRCH;
+
+		// Perform sb_nthset operations.
+		errno = errno_magic;
+		sb_idx_t actual_rv = sb_nthset(sb, n);
+		error_t actual_errno = errno;
+
+		if (actual_rv != expected_rv) {
+				fprintf(stderr, "Unexpected sb_nthset rv,\n"
+					"  n: %u\n"
+					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
+					n, actual_rv, expected_rv);
+				CU_ASSERT_EQUAL(actual_rv, expected_rv);
+		}
+
+		if (actual_errno != expected_errno) {
+				fprintf(stderr, "Unexpected sb_nthset errno,\n"
+					"  n: %u\n"
+					"  actual_errno: %#x expected_errno: %#x\n",
+					n, actual_errno, expected_errno);
+				CU_ASSERT_EQUAL(actual_errno, expected_errno);
+		}
+	}
+
+	sb_delete(sb);
+}
+
+
+void test_nthset_with_noneset(void)
+{
+	int rv;
+	sb_idx_t idx;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	for (unsigned int n = 0; n < 5; n++) {
+		// With no bits set, should always get a return index of 0,
+		// with errno set to ESRCH.
+		sb_idx_t expected_rv = 0;
+		error_t expected_errno = ESRCH;
+
+		// Perform the operation
+		errno = 0;
+		sb_idx_t actual_rv = sb_nthset(sb, n);
+		error_t actual_errno = errno;
+
+		if (actual_rv != expected_rv) {
+				fprintf(stderr, "Unexpected sb_nthset rv,\n"
+					"  n: %u\n"
+					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
+					n, actual_rv, expected_rv);
+				CU_ASSERT_EQUAL(actual_rv, expected_rv);
+		}
+
+		if (actual_errno != expected_errno) {
+				fprintf(stderr, "Unexpected sb_nthset errno,\n"
+					"  n: %u\n"
+					"  actual_errno: %#x expected_errno: %#x\n",
+					n, actual_errno, expected_errno);
+				CU_ASSERT_EQUAL(actual_errno, expected_errno);
+		}
+	}
+
+	sb_delete(sb);
+}
+
+void test_nthset_with_allset(void)
+{
+	int rv;
+	sb_idx_t idx;
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	// Set all bits.
+	rv = sb_set(sb, 0);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+	rv = sb_setnum(sb, 1, ((sb_num_t) 0) - 1);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+	bool first_pass = true;
+	for (sb_num_t nth_idx = 0; (nth_idx != 0) || first_pass; nth_idx++) {
+		// Once a few bits at the beginning have been tested, skip to an
+		// index near the end, so the test will complete in a reasonable
+		// amount of time.
+		if (nth_idx == 5) {
+			nth_idx = SB_IDX_MAX - 5;
+		}
+
+		// With all bits set, return index should be equal to the requested
+		// Nth index and errno value should be unchanged.
+		sb_idx_t expected_rv = nth_idx;
+		error_t errno_magic = 0x38ac ^ (nth_idx % 200);
+		if (errno_magic == 0) { errno_magic = 0x732a; }
+		error_t expected_errno = errno_magic;
+
+		// Perform the operation
+		errno = errno_magic;
+		sb_idx_t actual_rv = sb_nthset(sb, nth_idx);
+		error_t actual_errno = errno;
+
+		if (actual_rv != expected_rv) {
+				fprintf(stderr, "Unexpected sb_nthset rv,\n"
+					"  nth_idx: %#" SB_PRI_IDX "\n"
+					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
+					nth_idx, actual_rv, expected_rv);
+				CU_ASSERT_EQUAL(actual_rv, expected_rv);
+		}
+
+		if (actual_errno != expected_errno) {
+				fprintf(stderr, "Unexpected sb_nthset errno,\n"
+					"  nth_idx: %#" SB_PRI_IDX "\n"
+					"  actual_errno: %#x expected_errno: %#x\n",
+					nth_idx, actual_errno, expected_errno);
+				CU_ASSERT_EQUAL(actual_errno, expected_errno);
+		}
+
+		first_pass = false;
 	}
 
 	sb_delete(sb);
@@ -1081,6 +1235,11 @@ int main(void)
 			== NULL)
 		|| (CU_add_test(pSuite, "prev_set", test_prev_set) == NULL)
 		|| (CU_add_test(pSuite, "prev_cleared", test_prev_cleared) == NULL)
+		|| (CU_add_test(pSuite, "nthset", test_nthset) == NULL)
+		|| (CU_add_test(pSuite, "nthset_with_noneset", test_nthset_with_noneset)
+				== NULL)
+		|| (CU_add_test(pSuite, "nthset_with_allset", test_nthset_with_allset)
+				== NULL)
 		|| (CU_add_test(pSuite, "permutations6", test_permutations6) == NULL)
 		|| (CU_add_test(pSuite, "set_after_single", test_set_after_single) == NULL)
 		|| (CU_add_test(pSuite, "set_after_clear_single",
