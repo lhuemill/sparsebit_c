@@ -488,6 +488,7 @@ void test_nthset(void)
 	sb_idx_t idx_set[] = {
 		0, 2, 5, 6,
 		63, 64, 65,
+		0x103f,
 		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
 	};
 	for (unsigned int n = 0; n < NUM(idx_set); n++) {

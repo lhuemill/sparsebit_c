@@ -525,7 +525,7 @@ sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth)
 
 		// Jump by as much as a nodes set_after value when current idx is
 		// specified by a nodes set_after value.
-		const node_t *node = node_find_const(sb, idx + 1);
+		const node_t *node = node_find_const(sb, idx);
 		assert(node != NULL);
 		if ((idx - node->idx_start) >= NUM_MASK_BITS) {
 			sb_num_t jump_max = (node->idx_start + NUM_MASK_BITS + node->set_after
