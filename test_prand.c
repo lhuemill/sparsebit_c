@@ -18,6 +18,7 @@
                           // within sparsebit_c.h.
 
 #include <assert.h>
+#include <errno.h>
 #include <getopt.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -32,9 +33,11 @@
 #define NUM_TEST_RANGES 6
 #define BITS_PER_TEST_RANGE 300
 #define PER_PASS_NUM_OPS 1000
+#define NTH_IDX_PREFERRED_RANGE 100
 
 #define MEMCLEAR(p, n) memset((p), 0, (n))
 #define NUM(a) (sizeof(a)/sizeof((a)[0]))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 #define USE_DEFAULT_RANGE_THRESHOLD ((int)((float)RAND_MAX * 0.05))
 sb_idx_t default_ranges[] = {
@@ -67,6 +70,7 @@ enum OP {
 	QUERY_FIRSTCLEARED,
 	QUERY_NEXTCLEARED,
 	QUERY_PREVCLEARED,
+	QUERY_NTHSET,
 };
 struct op_str {
 	enum OP op;
@@ -88,6 +92,7 @@ struct op_str {
 	{QUERY_FIRSTCLEARED, "QUERY_FIRSTCLEARED"},
 	{QUERY_NEXTCLEARED, "QUERY_NEXTCLEARED"},
 	{QUERY_PREVCLEARED, "QUERY_PREVCLEARED"},
+	{QUERY_NTHSET, "QUERY_NTHSET"},
 };
 #define OP_TYPE_FIRST (op_strings[0].op)
 #define OP_TYPE_LAST (op_strings[NUM(op_strings) - 1].op)
@@ -97,6 +102,7 @@ struct operation {
 	enum OP op;
 	unsigned int offset;
 	sb_num_t num;
+	sb_idx_t nth_idx;
 };
 struct operation operations[PER_PASS_NUM_OPS];
 
@@ -117,6 +123,7 @@ static sb_idx_t expected_prevset(sb_idx_t start_idx);
 static sb_idx_t expected_firstcleared(void);
 static sb_idx_t expected_nextcleared(sb_idx_t start_idx);
 static sb_idx_t expected_prevcleared(sb_idx_t start_idx);
+static sb_idx_t expected_nthset_rv(sb_idx_t nth_idx);
 
 int main(int argc, char *argv[])
 {
@@ -240,6 +247,15 @@ int main(int argc, char *argv[])
 				operations[op_idx].num = rand()
 					% ((BITS_PER_TEST_RANGE - operations[op_idx].offset) + 1);
 			}
+			if (operations[op_idx].op == QUERY_NTHSET) {
+				// Half the time, select an Nth index within the preferred
+				// Nth index range, otherwise use a range of the maximum
+				// number of test bits that could be ever be set.
+				sb_num_t nth_idx_range = (rand() % 2) ? NTH_IDX_PREFERRED_RANGE
+					: (BITS_PER_TEST_RANGE * NUM_TEST_RANGES);
+
+				operations[op_idx].nth_idx = rand() % nth_idx_range;
+			}
 		}
 
 		// ==== Perform ====
@@ -255,10 +271,15 @@ int main(int argc, char *argv[])
 			p_op < (operations + NUM(operations)); p_op++) {
 			bool expected_bool;
 			sb_idx_t expected_idx;
+			sb_idx_t expected_idx_rv;
 			sb_num_t expected_num;
 			bool actual_bool;
 			sb_idx_t actual_idx;
+			sb_idx_t actual_idx_rv;
 			sb_num_t actual_num;
+			error_t errno_orig;
+			error_t expected_errno;
+			error_t actual_errno;
 			
 			sb_idx_t idx = test_ranges[p_op->range_idx].start_idx + p_op->offset;
 
@@ -474,6 +495,41 @@ int main(int argc, char *argv[])
 				}
 				break;
 
+			case QUERY_NTHSET:
+				errno_orig = MAX((p_op - operations) % 100, 1);
+				expected_idx_rv = expected_nthset_rv(p_op->nth_idx);
+				error_t expected_errno = (p_op->nth_idx >= expected_numset())
+					? ESRCH : errno_orig;
+
+				errno = errno_orig;
+				actual_idx_rv = sb_nthset(sb, p_op->nth_idx);
+				actual_errno = errno;
+				if (actual_idx_rv != expected_idx_rv) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_NTHSET Unexpected Return Value:\n"
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX
+						" nth_idx: %#" SB_PRI_IDX "\n",
+						pass, actual_idx_rv, expected_idx_rv, p_op->nth_idx);
+					display_operations(stderr);
+					fputs(sb_dump(sb), stderr);
+					exit(56);
+				}
+
+				if (actual_errno != expected_errno) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_NTHSET Unexpected errno Value:\n"
+						"  actual: %u expected: %u"
+						" nth_idx: %#" SB_PRI_IDX "\n",
+						pass, actual_errno, expected_errno, p_op->nth_idx);
+					display_operations(stderr);
+					fputs(sb_dump(sb), stderr);
+					exit(57);
+				}
+
+				break;
+
 			default:
 				assert(false);  // Unexpected operation
 			}
@@ -662,13 +718,15 @@ static void display_operations(FILE *stream)
 	fputs("Operations:\n", stderr);
 	for (unsigned int opt_idx = 0; opt_idx <  NUM(operations); opt_idx++) {
 		fprintf(stderr, "  %3u %u (%s)%*s idx: %#" SB_PRI_IDX
-			" num: %#" SB_PRI_NUM "\n",
+			" num: %#" SB_PRI_NUM
+			" nth_idx: %#" SB_PRI_IDX "\n",
 			opt_idx, operations[opt_idx].op,
 			op_string(operations[opt_idx].op),
 			(int) (18 - strlen(op_string(operations[opt_idx].op))), "",
 			test_ranges[operations[opt_idx].range_idx].start_idx
 				+ operations[opt_idx].offset,
-			operations[opt_idx].num);
+			operations[opt_idx].num,
+			operations[opt_idx].nth_idx);
 	}
 }
 
@@ -930,4 +988,27 @@ static sb_idx_t expected_prevcleared(sb_idx_t start_idx)
 	
 	return (test_ranges[0].start_idx >= 1)
 		? test_ranges[0].start_idx - 1 : 0;
+}
+
+static sb_idx_t expected_nthset_rv(sb_idx_t nth_idx)
+{
+	sb_num_t num = 0;
+
+	// For each test range.
+	for (struct test_range *p_range = test_ranges;
+		p_range < test_ranges + NUM(test_ranges); p_range++) {
+		// For each bit in the current test range.
+		for (unsigned int bit_idx = 0; bit_idx < NUM(p_range->expected);
+			bit_idx++) {
+			if (p_range->expected[bit_idx]) {
+				if (num == nth_idx) {
+					return p_range->start_idx + bit_idx;
+				}
+				num++;
+			}
+		}
+	}
+
+
+	return 0;
 }

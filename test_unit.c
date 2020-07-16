@@ -1180,6 +1180,66 @@ void test_combinations4(void)
 			}
 		}
 
+		// Validate value returned from sb_numset().
+		sb_num_t expected_numset = 0;
+		for (bool *p = expected; p < (expected + (range_max - range_min) + 1);
+			p++) {
+			if (*p) { expected_numset++; }
+		}
+		sb_num_t actual_numset = sb_numset(sb);
+		if (actual_numset != expected_numset) {
+			fputs("Error - Unexpected num set\n", stderr);
+			fputs("Operations:\n", stderr);
+			for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+				fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+					" num: %#" SB_PRI_NUM "\n",
+					op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
+					ranges[operations[op_idx].range_idx].idx,
+					ranges[operations[op_idx].range_idx].num);
+			}
+			fprintf(stderr,
+				"  actual_numset: %#" SB_PRI_NUM
+				"  expected_numset: %#" SB_PRI_NUM "\n",
+				actual_numset, expected_numset);
+			fputs(sb_dump(sb), stderr);
+
+			CU_FAIL_FATAL("Unexpected Num Set");
+		}
+
+		// Validate index returned for each sb_nthset().
+		for (sb_num_t nth_idx = 0; nth_idx < expected_numset; nth_idx++) {
+			sb_num_t num_set = 0;
+			sb_idx_t expected_rv;
+			for (expected_rv = range_min; expected_rv <= range_max;
+				expected_rv++) {
+				if (expected[expected_rv - range_min]) {
+					num_set++;
+				}
+				if ((nth_idx + 1) == num_set) { break; }
+			}
+
+			sb_idx_t actual_rv = sb_nthset(sb, nth_idx);
+			if (actual_rv != expected_rv) {
+				fputs("Error - Unexpected Nth set return value\n", stderr);
+				fputs("Operations:\n", stderr);
+				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+						" num: %#" SB_PRI_NUM "\n",
+						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
+						ranges[operations[op_idx].range_idx].idx,
+						ranges[operations[op_idx].range_idx].num);
+				}
+				fprintf(stderr,
+					"  nth_idx: %#" SB_PRI_NUM
+					"  actual_rv: %#" SB_PRI_NUM
+					"  expected_rv: %#" SB_PRI_NUM "\n",
+					nth_idx, actual_rv, expected_rv);
+				fputs(sb_dump(sb), stderr);
+
+				CU_FAIL_FATAL("Unexpected Nth Set Return Value");
+			}
+		}
+
 		sb_delete(sb);
 
 		// Increment to next combination of operations.

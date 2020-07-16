@@ -31,6 +31,7 @@
 #define PREFIX_HEX "0x"
 #define PREFIX_IDX "idx: "
 #define PREFIX_NUM "num: "
+#define PREFIX_NTH_IDX "nth_idx: "
 
 enum OP {
 	SET_BIT = 132,
@@ -49,6 +50,7 @@ enum OP {
 	QUERY_FIRSTCLEARED,
 	QUERY_NEXTCLEARED,
 	QUERY_PREVCLEARED,
+	QUERY_NTHSET,
 };
 
 struct op_trait {
@@ -71,12 +73,14 @@ struct op_trait {
 	{QUERY_FIRSTCLEARED, "QUERY_FIRSTCLEARED"},
 	{QUERY_NEXTCLEARED, "QUERY_NEXTCLEARED"},
 	{QUERY_PREVCLEARED, "QUERY_PREVCLEARED"},
+	{QUERY_NTHSET, "QUERY_NTHSET"},
 };
 
 struct operation {
 	enum OP op;
 	sb_idx_t idx;
 	sb_num_t num;
+	sb_idx_t nth_idx;
 	bool perform;
 	char *line;
 	size_t trait_idx;
@@ -95,6 +99,7 @@ static sb_idx_t ops_expected_nextset(sb_idx_t idx_start);
 static sb_idx_t ops_expected_nextcleared(sb_idx_t idx_start);
 static sb_idx_t ops_expected_prevset(sb_idx_t idx_start);
 static sb_idx_t ops_expected_prevcleared(sb_idx_t idx_start);
+static sb_idx_t ops_expected_nthset(sb_idx_t nth_idx);
 
 int main(void)
 {
@@ -176,6 +181,19 @@ int main(void)
 					+ sizeof(PREFIX_HEX) - 1, &endptr, 16);
 			} else {
 				num = strtoull(chptr + sizeof(PREFIX_NUM) - 1, &endptr, 10);
+			}
+		}
+
+		// Determine Nth index if specified on line.
+		sb_idx_t nth_idx = 0;
+		chptr = strstr(line, PREFIX_NTH_IDX);
+		if (chptr != NULL) {
+			if (strncmp(chptr + sizeof(PREFIX_NTH_IDX) - 1, PREFIX_HEX,
+				sizeof(PREFIX_HEX) - 1) == 0) {
+				idx = strtoull(chptr + sizeof(PREFIX_NTH_IDX) - 1
+					+ sizeof(PREFIX_HEX) - 1, &endptr, 16);
+			} else {
+				idx = strtoull(chptr + sizeof(PREFIX_NTH_IDX) - 1, &endptr, 10);
 			}
 		}
 
@@ -303,6 +321,7 @@ static void perform_operations(sb_t *sb)
 		if (opptr->perform) {
 			sb_idx_t idx = opptr->idx;
 			sb_num_t num = opptr->num;
+			sb_idx_t nth_idx = opptr->nth_idx;
 
 			switch (opptr->op) {
 			case SET_BIT:
@@ -366,6 +385,10 @@ static void perform_operations(sb_t *sb)
 
 			case QUERY_PREVCLEARED:
 				(void) sb_prevcleared(sb, idx);
+				break;
+
+			case QUERY_NTHSET:
+				(void) sb_nthset(sb, nth_idx);
 				break;
 
 			default:
@@ -464,6 +487,32 @@ sb_pdynstr_t validate(sb_t *sb)
 		}
 		idx_edge = ops_ranges_idx_next(idx_edge);
 	} while (idx_edge != 0);
+
+	// Validate sb_nthset() for nth index of each set bit, plus
+	// 3 beyond the number of set bits.
+	for (sb_idx_t nth_idx = 0; nth_idx <= ops_expected_numset() + 3; nth_idx++) {
+		sb_idx_t expected_rv = ops_expected_nthset(nth_idx);
+		error_t orig_errno = ESRCH + 5;
+		error_t expected_errno = (nth_idx < ops_expected_numset())
+			? orig_errno : ESRCH;
+		errno = orig_errno;
+		sb_idx_t actual_rv = sb_nthset(sb, nth_idx);
+		error_t actual_errno = errno;
+
+		if (actual_rv != expected_rv) {
+			return sb_dyn_sprintf("Unexpected nthset rv,\n"
+				"  nth_idx: %#" SB_PRI_IDX " actual_rv: %#" SB_PRI_IDX
+				" expected_rv: %#" SB_PRI_IDX,
+				nth_idx, actual_rv, expected_rv);
+		}
+
+		if (actual_errno != expected_errno) {
+			return sb_dyn_sprintf("Unexpected nthset errno,\n"
+				"  nth_idx: %#" SB_PRI_IDX " actual_errno: %u"
+				" expected_errno: %u",
+				nth_idx, actual_errno, expected_errno);
+		}
+	}
 
 	return NULL;
 }
@@ -712,4 +761,21 @@ static sb_idx_t ops_expected_prevcleared(sb_idx_t idx_start)
 	} while (idx_edge != 0);
 
 	return idx_rv;
+}
+
+static sb_idx_t ops_expected_nthset(sb_idx_t nth_idx)
+{
+	if (nth_idx >= ops_expected_numset()) {
+		return 0;
+	}
+
+	sb_idx_t idx = (ops_expected_isset(0)) ? 0 : ops_expected_nextset(0);
+	sb_num_t num = 0;
+
+	while ((num < nth_idx) && ((num + 1) < ops_expected_numset())) {
+		idx = ops_expected_nextset(idx);
+		num++;
+	}
+
+	return idx;
 }
