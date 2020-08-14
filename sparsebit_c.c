@@ -34,7 +34,6 @@ typedef struct node node_t;
 struct sb {
 	node_t *root;
 	node_t *hint;
-	sb_num_t num_set;
 };
 
 enum node_color {
@@ -51,6 +50,11 @@ struct node {
 	sb_idx_t idx_start;  // Index of first bit in mask.
 	mask_t mask;
 	sb_num_t set_after;  // Number of contiguously set bits, after last mask bit.
+	sb_num_t num_set_subtree;  // Number of bits set in this node plus all of
+	                           // its children, even children of children.
+	                           // Note: Nodes always have at least 1 set bit,
+	                           // so a num_set_subtree value of 0, actually
+	                           // represents SB_NUM_MAX + 1 set bits.
 	enum node_color color;
 	node_t *parent;
 	node_t *left;
@@ -67,19 +71,20 @@ static const node_t *node_find_or_next_const(const sb_t *sb_const,
 static const node_t *node_find_or_prev_const(const sb_t *sb_const,
 	sb_idx_t idx);
 static bool node_supports_idx(const node_t *node, sb_idx_t idx);
-static sb_num_t node_num_set(node_t *node);
 static int node_cmp(node_t *node1, node_t *node2);
 static int node_cmp_idx(node_t *node, sb_idx_t idx);
 static bool node_prev_adj(node_t *node);
 static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at);
 static void node_merge(sb_t *sb, node_t *prev, node_t *next);
-static void node_merge_adj_as_needed(sb_t  *sb, node_t *node);
 static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end);
+static bool node_any_set(const node_t *node);
 static bool mask_any_set(mask_t mask);
-static unsigned int mask_num_set(mask_t mask);
 static bool mask_only_leading(mask_t mask);
-static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
-	unsigned int indent);
+
+static unsigned int num_set_mask(mask_t mask);
+static sb_num_t num_set_node(const node_t *node);
+static sb_num_t num_set_subtree(const node_t *node);
+static void num_set_adjust(node_t *node, sb_num_t amt, bool positive);
 
 static bool node_is_bud(node_t *node);
 static unsigned int node_depth(const node_t *node);
@@ -101,6 +106,8 @@ static void node_transplant(sb_t *sb, node_t *u, node_t *v);
 static void node_insert(sb_t *sb, node_t *parent, node_t *node);
 static void node_delete(sb_t *sb, node_t *node);
 static void node_delete_fixup(sb_t *sb, node_t *node);
+static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
+	unsigned int indent);
 
 sb_t *sb_create(void)
 {
@@ -131,14 +138,11 @@ int sb_copy(sb_t *dest, const sb_t *src)
 		return 0;
 	}
 
-	// Delete any nodes that current exist at destination.
+	// Delete any nodes that currently exist at destination.
 	while (dest->root) {
-		dest->root->mask = 0;
-		dest->root->set_after = 0;
 		node_delete(dest, dest->root);
 	}
 	dest->hint = NULL;
-	dest->num_set = 0;
 
 	// For each node in the source, create and add to source a
 	// duplicate of the node.
@@ -174,7 +178,6 @@ int sb_copy(sb_t *dest, const sb_t *src)
 			}
 
 			node_insert(dest, parent, node_dest);
-			dest->num_set += node_num_set(node_dest);
 		}
 	}
 
@@ -201,7 +204,7 @@ int sb_set(sb_t* sb, sb_idx_t idx)
 		// Is bit just 1 beyond the bits described by the node's set_after value?
 		if (idx == (node->idx_start + NUM_MASK_BITS + node->set_after)) {
 			node->set_after++;
-			sb->num_set++;
+			num_set_adjust(node, 1, true);
 			node_adjacent_fixup(sb, idx, idx);
 
 			return 0;
@@ -218,8 +221,8 @@ int sb_set(sb_t* sb, sb_idx_t idx)
 
 	mask_t mask = (mask_t)1 << (idx - node->idx_start);
 	if ((node->mask & mask) == 0) {
-		sb->num_set++;
 		node->mask |= mask;
+		num_set_adjust(node, 1, true);
 	}
 
 	node_adjacent_fixup(sb, idx, idx);
@@ -261,7 +264,7 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 		// Was a new empty node for the start created?  If so, need to
 		// remove that empty node, before returning the ENOMEM indication
 		// for the end node.
-		if (node_num_set(node_start) == 0) {
+		if (num_set_node(node_start) == 0) {
 			node_delete(sb, node_start);
 		}
 		errno = ENOMEM;
@@ -282,13 +285,15 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	// Remove any intermediate nodes, between the start and end nodes.
 	while ((node_start != node_end) && (node_next(node_start) != node_end)) {
 		node_t *node = node_next(node_start);
-		assert(sb->num_set >= node_num_set(node));
-		sb->num_set -= node_num_set(node);
+		assert(sb_numset(sb) >= num_set_node(node));
+		assert(num_set_node(node) >= 1);
+		num_set_adjust(node, num_set_node(node), false);
 		node_delete(sb, node);
 	}
 
 	// As needed, set mask bits from the start until the next mask boundary.
 	sb_idx_t idx = idx_start;
+	sb_num_t num_mask_set = 0;
 	while ((idx <= idx_end) && (idx >= idx_start)
 		&& ((idx - node_start->idx_start) < NUM_MASK_BITS)) {
 		unsigned int offset = idx - node_start->idx_start;
@@ -296,15 +301,17 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 		mask_t mask = (mask_t)1 << offset;
 		if ((mask & node_start->mask) == 0) {
 			node_start->mask |= mask;
-			sb->num_set++;
+			num_mask_set++;
 		}
 		idx++;
 	}
+	num_set_adjust(node_start, num_mask_set, true);
 
 	// As needed, handle bits from last mask boundary to ending index.
 	if (idx <= idx_end) {
 		idx = (node_end->idx_start > idx_start)
 			? node_end->idx_start : idx_start;
+		num_mask_set = 0;
 		while ((idx <= idx_end) && (idx >= node_end->idx_start)
 			&& ((idx - node_end->idx_start) < NUM_MASK_BITS)) {
 			unsigned int offset = idx - node_end->idx_start;
@@ -312,10 +319,11 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			mask_t mask = (mask_t)1 << offset;
 			if ((mask & node_end->mask) == 0) {
 				node_end->mask |= mask;
-				sb->num_set++;
+				num_mask_set++;
 			}
 			idx++;
 		}
+		num_set_adjust(node_end, num_mask_set, true);
 	}
 
 	// If needed, set all bits in gap between start and end nodes.
@@ -327,7 +335,7 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 				sb_num_t num = node_end->idx_start - (node_start->idx_start
 					+ NUM_MASK_BITS + node_start->set_after);
 				node_start->set_after += num;
-				sb->num_set += num;
+				num_set_adjust(node_start, num, true);
 			}
 	}
 
@@ -347,7 +355,7 @@ bool sb_anyset(const sb_t* sb)
 
 bool sb_allset(const sb_t* sb)
 {
-	if (sb->root && (sb->num_set == 0)) {
+	if (sb->root && (sb->root->num_set_subtree == 0)) {
 		assert(sb->root->idx_start == 0);
 		assert(sb->root->mask == ~((mask_t) 0));
 		assert(sb->root->set_after == (((sb_num_t) 0) - NUM_MASK_BITS));
@@ -361,7 +369,7 @@ bool sb_allset(const sb_t* sb)
 
 sb_num_t sb_numset(const sb_t* sb)
 {
-	return sb->num_set;
+	return (sb->root != NULL) ? sb->root->num_set_subtree : 0;
 }
 
 bool sb_isset(const sb_t* sb, sb_idx_t idx)
@@ -517,28 +525,43 @@ sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth)
 		return 0;
 	}
 
-	sb_num_t num = 0;
-	sb_idx_t idx;
-
-	for (idx = sb_firstset(sb); nth > num; idx = sb_nextset(sb, idx)) {
-		num++;
-
-		// Jump by as much as a nodes set_after value when current idx is
-		// specified by a nodes set_after value.
-		const node_t *node = node_find_const(sb, idx);
-		assert(node != NULL);
-		if ((idx - node->idx_start) >= NUM_MASK_BITS) {
-			sb_num_t jump_max = (node->idx_start + NUM_MASK_BITS + node->set_after
-				- 1) - idx;
-			sb_num_t jump_amt = ((nth - num) > jump_max) ? jump_max : nth - num;
-			num += jump_amt;
-			idx += jump_amt;
-		}
+	if (sb_allset(sb)) {
+		return nth;
 	}
-	assert(nth == num);  // If failed, was state of sb asyncronously
-	                     // modified by another thread?
 
-	return idx;
+	const node_t *node = sb->root;
+	assert(node != NULL);
+	sb_num_t num = nth;
+	do {
+		sb_num_t low = (node->left) ? node->left->num_set_subtree
+			: (node->num_set_subtree
+				- ((node->right) ? node->right->num_set_subtree : 0)
+				- num_set_node(node));
+		sb_num_t high = node->num_set_subtree
+				- ((node->right) ? node->right->num_set_subtree : 0) - 1;
+		if (num < low) {
+			assert(node->left != NULL);
+			node = node->left;
+		} else if (num > high) {
+			sb_num_t amt = node->num_set_subtree - node->right->num_set_subtree;
+			assert(num >= amt);
+			num -= amt;
+			assert(node->right != NULL);
+			node = node->right;
+		} else {
+			unsigned int num_mask_set = 0;
+			for (unsigned int mask_idx = 0; mask_idx < NUM_MASK_BITS; mask_idx++) {
+				if (node->mask & ((mask_t)1 << mask_idx)) {
+					num_mask_set++;
+				}
+				if ((num + 1) == (low + num_mask_set)) {
+					return node->idx_start + mask_idx;
+				}
+			}
+
+			return (node->idx_start + NUM_MASK_BITS) + (num - (low + num_mask_set));
+		}
+	} while (true);
 }
 
 // ==== Clear/Cleared Operations
@@ -561,8 +584,8 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 
 	mask_t mask = (mask_t)1 << (idx - node->idx_start);
 	if (node->mask & mask) {
-		sb->num_set--;
 		node->mask &= ~mask;
+		num_set_adjust(node, 1, false);
 	}
 
 	// Are all the mask bits cleared?
@@ -648,8 +671,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	// As needed, remove intermediate nodes between node_start and node_end.
 	while ((node_start != node_end) && (node_next(node_start) != node_end)) {
 		node_t *node = node_next(node_start);
-		assert(sb->num_set >= node_num_set(node));
-		sb->num_set -= node_num_set(node);
+		assert(sb_numset(sb) >= num_set_node(node));
 		node_delete(sb, node);
 	}
 	// Remove node_start in cases where there is no node that supports
@@ -657,8 +679,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	// node that supports idx_end.  In such cases, node_start will point
 	// to the next node beyond where a node to support idx_start would be.
 	if ((node_start != node_end) && !node_supports_idx(node_start, idx_start)) {
-		assert(sb->num_set >= node_num_set(node_start));
-		sb->num_set -= node_num_set(node_start);
+		assert(sb_numset(sb) >= num_set_node(node_start));
 		node_delete(sb, node_start);
 		node_start = node_end;
 		if (node_start == NULL) {
@@ -672,6 +693,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	if ((idx_start >= node_start->idx_start)
 		&& (idx_start <= (node_start->idx_start + NUM_MASK_BITS - 1))) {
 		sb_idx_t idx = idx_start;
+		sb_num_t num_cleared = 0;
 		while ((idx <= idx_end) && (idx >= idx_start)
 			&& ((idx - node_start->idx_start) < NUM_MASK_BITS)) {
 			unsigned int offset = idx - node_start->idx_start;
@@ -679,7 +701,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			mask_t mask = (mask_t)1 << offset;
 			if ((mask & node_start->mask) != 0) {
 				node_start->mask &= ~mask;
-				sb->num_set--;
+				num_cleared++;
 				if (!mask_any_set(node_start->mask)) {
 					break;
 				}
@@ -687,10 +709,11 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			idx++;
 		}
 		if ((node_start != node_end) && (node_start->set_after > 0)) {
-			assert(sb->num_set >= node_start->set_after);
-			sb->num_set -= node_start->set_after;
+			assert(sb_numset(sb) >= node_start->set_after);
+			num_cleared += node_start->set_after;
 			node_start->set_after = 0;
 		}
+		num_set_adjust(node_start, num_cleared, false);
 		if (!mask_any_set(node_start->mask)) {
 			// If no set_after bits, then just need to delete the node.
 			if (node_start->set_after == 0) {
@@ -719,6 +742,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	if ((node_end != NULL)
 		&& ((node_start != node_end) || (idx_start < node_end->idx_start))) {
 		sb_idx_t idx = MASK_BOUNDARY(idx_end);
+		sb_num_t num_cleared = 0;
 		while ((idx <= idx_end) && (idx >= node_end->idx_start)
 			&& ((idx - node_end->idx_start) < NUM_MASK_BITS)) {
 			unsigned int offset = idx - node_end->idx_start;
@@ -726,13 +750,14 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			mask_t mask = (mask_t)1 << offset;
 			if ((mask & node_end->mask) != 0) {
 				node_end->mask &= ~mask;
-				sb->num_set--;
+				num_cleared++;
 			}
 			if (!mask_any_set(node_end->mask)) {
 				break;
 			}
 			idx++;
 		}
+		num_set_adjust(node_end, num_cleared, false);
 		if (!mask_any_set(node_end->mask)) {
 			// If no set_after bits, then just need to delete the node.
 			if (node_end->set_after == 0) {
@@ -764,13 +789,12 @@ bool sb_anycleared(const sb_t* sb)
 	// sb_numcleared() returns 0 both when all bits are set and all bits
 	// are cleared, because there are a total of ~(sb_num_t)0 + 1 bits.
 	// With overflow, one more than ~(sb_num_t)0 is 0.
-	return sb_numcleared(sb) || (sb->root == NULL)
-		|| ((sb->root != NULL) && (sb->num_set != 0));
+	return sb_numcleared(sb) || (sb->root == NULL);
 }
 
 sb_num_t sb_numcleared(const sb_t* sb)
 {
-	return (sb_num_t)0 - sb->num_set;
+	return (sb_num_t)0 - sb_numset(sb);
 }
 
 bool sb_iscleared(const sb_t* sb, sb_idx_t idx)
@@ -1149,11 +1173,6 @@ static bool node_supports_idx(const node_t *node, sb_idx_t idx)
 	return false;
 }
 
-static sb_num_t node_num_set(node_t *node)
-{
-	return mask_num_set(node->mask) + node->set_after;
-}
-
 static int node_cmp(node_t *node1, node_t *node2)
 {
 	if (node1->idx_start < node2->idx_start) {
@@ -1347,6 +1366,13 @@ static void node_rotate_left(sb_t *sb, node_t *x)
 	}
 	y->left = x;
 	x->parent = y;
+
+	x->num_set_subtree = num_set_node(x);
+	x->num_set_subtree += (x->left) ? x->left->num_set_subtree : 0;
+	x->num_set_subtree += (x->right) ? x->right->num_set_subtree : 0;
+	y->num_set_subtree = num_set_node(y);
+	y->num_set_subtree += (y->left) ? y->left->num_set_subtree : 0;
+	y->num_set_subtree += (y->right) ? y->right->num_set_subtree : 0;
 }
 
 //              |                               |             
@@ -1378,10 +1404,24 @@ static void node_rotate_right(sb_t *sb, node_t *y)
 	}
 	x->right = y;
 	y->parent = x;
+
+	y->num_set_subtree = num_set_node(y);
+	y->num_set_subtree += (y->left) ? y->left->num_set_subtree : 0;
+	y->num_set_subtree += (y->right) ? y->right->num_set_subtree : 0;
+	x->num_set_subtree = num_set_node(x);
+	x->num_set_subtree += (x->left) ? x->left->num_set_subtree : 0;
+	x->num_set_subtree += (x->right) ? x->right->num_set_subtree : 0;
 }
 
 static void node_transplant(sb_t *sb, node_t *u, node_t *v)
 {
+	if (v && v->num_set_subtree) {
+		num_set_adjust(v, v->num_set_subtree, false);
+	}
+	if (u->num_set_subtree) {
+		num_set_adjust(u, u->num_set_subtree, false);
+	}
+
 	if (u->parent == NULL) {
 		sb->root = v;
 	} else if (u == u->parent->left) {
@@ -1391,6 +1431,11 @@ static void node_transplant(sb_t *sb, node_t *u, node_t *v)
 	}
 	if (v != NULL) {
 		v->parent = u->parent;
+
+		num_set_adjust(v, num_set_node(v)
+			+ ((v->left) ? v->left->num_set_subtree : 0)
+			+ ((v->right) ? v->right->num_set_subtree : 0),
+			true);
 	}
 
 	return;
@@ -1418,6 +1463,7 @@ static void node_insert(sb_t *sb, node_t *parent, node_t *node)
 	node->left = NULL;
 	node->right = NULL;
 	node->color = RED;
+	num_set_adjust(node, num_set_node(node), true);
 
 	// Node Insert Fixup
 	assert(node->color == RED);  // Newly inserted nodes are always colored RED.
@@ -1502,6 +1548,7 @@ static void node_delete(sb_t *sb, node_t *node)
 		}
 		x = y->right;
 		if (y->parent == node) {
+			sb_num_t num = num_set_node(x);
 			x->parent = y;
 		} else {
 			node_transplant(sb, y, y->right);
@@ -1509,9 +1556,14 @@ static void node_delete(sb_t *sb, node_t *node)
 			y->right->parent = y;
 		}
 		node_transplant(sb, node, y);
+
+		if (y->left) {
+			num_set_adjust(y->left, y->left->num_set_subtree, false);
+		}
 		y->left = node->left;
 		y->left->parent = y;
 		y->color = node->color;
+		num_set_adjust(y, y->left->num_set_subtree, true);
 	}
 
 	if (y_orig_color == BLACK) {
@@ -1710,10 +1762,10 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 			}
 
 			// Add to total sum of bits set, the number of bits set in this node.
-			sum_pernode_set += node_num_set(node);
+			sum_pernode_set += num_set_node(node);
 
 			// Nodes should only exist if they represent at least 1 set bit.
-			if (node_num_set(node) == 0) {
+			if (num_set_node(node) == 0) {
 				return sb_dyn_sprintf("Node doesn't represent any set bits,\n"
 					"  node: %p mask: %#" NODE_PRI_MASK "",
 					node, node->mask);
@@ -1747,6 +1799,28 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 				}
 			}
 
+			// Validate nodes subtree num set value is equal to the number of
+			// bits set in this node plus all its children.
+			sb_num_t expected_subtree_num = num_set_node(node);
+			expected_subtree_num += (node->left) ? num_set_subtree(node->left) : 0;
+			expected_subtree_num += (node->right) ? num_set_subtree(node->right) : 0;
+			if (node->num_set_subtree != expected_subtree_num) {
+				return sb_dyn_sprintf("Unexpected num_set_subtree\n"
+					"  node->idx_start: %#" SB_PRI_IDX
+					" node->mask: %#018" NODE_PRI_MASK
+					" node->set_after: %#" SB_PRI_NUM "\n"
+					"  left_num_set_subtree: %#" SB_PRI_NUM "\n"
+					"  right_num_set_subtree: %#" SB_PRI_NUM "\n"
+					"  num_set_mask: %u"
+					"  node->num_set_subtree: %#" SB_PRI_NUM "\n"
+					"  expected_subtree_num: %#" SB_PRI_NUM "\n",
+					node->idx_start, node->mask, node->set_after,
+					(node->left) ? num_set_subtree(node->left) : (sb_num_t) 0,
+					(node->right) ? num_set_subtree(node->right) : (sb_num_t) 0,
+					num_set_mask(node->mask), node->num_set_subtree,
+					expected_subtree_num);
+			}
+
 			prev = node;
 		}
 	}
@@ -1769,9 +1843,9 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 
 	// Is the sum of bits set across all the nodes equal to the total
 	// maintained in the sparsebit structure.
-	if (sum_pernode_set != sb->num_set) {
+	if (sum_pernode_set != sb_numset(sb)) {
 		return sb_dyn_sprintf("sb->num_set: %llu not equal to "
-			"sum_pernode_set: %llu", sb->num_set, sum_pernode_set);
+			"sum_pernode_set: %llu", sb_numset(sb), sum_pernode_set);
 	}
 
 	return NULL;
@@ -1782,7 +1856,7 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 sb_pdynstr_t sb_dump(const sb_t* sb)
 {
 	sb_pdynstr_t rv_str = sb_dyn_sprintf("sb: %p\n"
-		"root: %p num_set: %llu\n", sb, sb->root, sb->num_set);
+		"root: %p\n", sb, sb->root);
 	if (sb->root) {
 		sb_pdynstr_t tmp_str = dump_subtree(sb, sb->root, 2);
 		rv_str = sb_dyn_sprintf("%s%s", rv_str, tmp_str);
@@ -1822,6 +1896,7 @@ static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at)
 		second->mask |= (mask_t)1 << bit_idx;
 		second->set_after--;
 	}
+	num_set_adjust(first, num_set_node(second), false);
 
 	node_t *parent = sb->root;
 	while (parent != NULL) {
@@ -1854,10 +1929,14 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 	assert(node_prev_adj(next));
 	assert(mask_only_leading(next->mask));
 
+	sb_num_t adj_amt = 0;
+
+	sb_num_t num_cleared = 0;
 	if (next->mask == ~(mask_t)0) {
 		// Merge all of next node, both its mask and set_after bits, into
 		// the previous node.
 		prev->set_after += NUM_MASK_BITS + next->set_after;
+		num_set_adjust(prev, NUM_MASK_BITS + next->set_after, true);
 		node_delete(sb, next);
 	} else {
 		// Add next nodes contigously set leading mask bits
@@ -1865,12 +1944,17 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 		for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
 			if ((((mask_t)1 << n) & next->mask) != 0) {
 				prev->set_after++;
+				adj_amt++;
+				num_cleared++;
 			} else {
 				break;
 			}
 		}
+		num_set_adjust(next, num_cleared, false);
 		next->mask = 0;
 		next->idx_start += NUM_MASK_BITS;
+		num_set_adjust(prev, adj_amt, true);
+		adj_amt = 0;
 
 		if (next->set_after > 0) {
 			for (unsigned int n = 0; (n < NUM_MASK_BITS)
@@ -1884,6 +1968,7 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 			node_delete(sb, next);
 		}
 	}
+	num_set_adjust(prev, adj_amt, true);
 
 	node_t *next2 = node_next(prev);
 	if ((next2 != NULL) && node_prev_adj(next2)
@@ -1943,10 +2028,11 @@ static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end)
 
 		node = node_next(node);
 	}
+}
 
-
-
-
+static bool node_any_set(const node_t *node)
+{
+	return mask_any_set(node->mask) || node->set_after;
 }
 
 static bool mask_any_set(mask_t mask)
@@ -1958,7 +2044,16 @@ static bool mask_any_set(mask_t mask)
 	return false;
 }
 
-static unsigned int mask_num_set(mask_t mask)
+static bool mask_only_leading(mask_t mask)
+{
+	if ((mask != 0) && (((mask + 1) & (mask)) == 0)) {
+		return true;
+	}
+
+	return false;
+}
+
+static unsigned int num_set_mask(mask_t mask)
 {
 	sb_num_t num = 0;
 
@@ -1974,13 +2069,37 @@ static unsigned int mask_num_set(mask_t mask)
 	return num;
 }
 
-static bool mask_only_leading(mask_t mask)
+static sb_num_t num_set_node(const node_t *node)
 {
-	if ((mask != 0) && (((mask + 1) & (mask)) == 0)) {
-		return true;
-	}
+	return num_set_mask(node->mask) + node->set_after;
+}
 
-	return false;
+static sb_num_t num_set_subtree(const node_t *node)
+{
+	sb_num_t sum = 0;
+
+	sum += num_set_node(node);
+	sum += (node->left) ? num_set_subtree(node->left) : 0;
+	sum += (node->right) ? num_set_subtree(node->right) : 0;
+
+	return sum;
+}
+
+static void num_set_adjust(node_t *node, sb_num_t amt, bool positive)
+{
+	if (amt == 0) { return; }
+
+	for (; node != NULL; node = node->parent) {
+		if (positive) {
+			assert(((node->num_set_subtree + amt) > node->num_set_subtree)
+				|| ((node->num_set_subtree + amt) == 0));
+			node->num_set_subtree += amt;
+		} else {
+			assert((node->num_set_subtree >= amt)
+				|| (node->num_set_subtree == 0));
+			node->num_set_subtree -= amt;
+		}
+	}
 }
 
 static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
@@ -1991,10 +2110,12 @@ static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
 	sb_pdynstr_t node_str = sb_dyn_sprintf(
 		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#018" NODE_PRI_MASK
 		" set_after: %#" SB_PRI_NUM "\n"
-		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
+		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n"
+		"%*snum_set_subtree: %#" SB_PRI_NUM "\n",
 		indent, "", node, node->idx_start, node->mask, node->set_after,
-		indent, "", (node->color == RED) ? "RED  " : "BLACK",
-		node_depth(node), node->parent, node->left, node->right);
+		indent + 2, "", (node->color == RED) ? "RED  " : "BLACK",
+		node_depth(node), node->parent, node->left, node->right,
+		indent + 2, "", node->num_set_subtree);
 	sb_pdynstr_t left_str = NULL, right_str = NULL;
 	if (node->left) {
 		left_str = dump_subtree(sb, node->left, indent + 2);

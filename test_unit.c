@@ -17,6 +17,7 @@
                           // detection of includes, that may be missing
                           // within sparsebit_c.h.
 
+#include <argz.h>  // Included for definition of error_t on Arm based systems.
 #include <assert.h>
 #include <errno.h>
 #include <stdbool.h>

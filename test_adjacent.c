@@ -283,6 +283,12 @@ int main(int argc, char *argv[])
 					errno);
 				exit(41);
 			}
+			err_string = sb_validate(sb_op_set);
+			if (err_string) {
+				printf("FAILED: Validation Error - "
+				"Inconsitent Internal State:\n%s\n", err_string);
+				exit(44);
+			}
 			sb_set(sb_op_set, idx1);
 			err_string = sb_validate(sb_op_set);
 			if (err_string) {
@@ -322,6 +328,12 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: sb_copy sb_initial to sb_op_clear, errno: %i\n",
 					errno);
 				exit(51);
+			}
+			err_string = sb_validate(sb_op_clear);
+			if (err_string) {
+				printf("FAILED: Validation Error - "
+				"Inconsitent Internal State:\n%s\n", err_string);
+				exit(54);
 			}
 			sb_clear(sb_op_clear, idx1);
 			err_string = sb_validate(sb_op_clear);
@@ -368,6 +380,12 @@ int main(int argc, char *argv[])
 						"errno: %i\n", errno);
 					exit(61);
 				}
+				err_string = sb_validate(sb_op_setnum);
+				if (err_string) {
+					printf("FAILED: Validation Error - "
+					"Inconsitent Internal State:\n%s\n", err_string);
+					exit(64);
+				}
 				sb_setnum(sb_op_setnum, idx1, num);
 				err_string = sb_validate(sb_op_setnum);
 				if (err_string) {
@@ -410,6 +428,12 @@ int main(int argc, char *argv[])
 					fprintf(stderr, "Error: sb_copy sb_initial to sb_op_clearnum, "
 						"errno: %i\n", errno);
 					exit(71);
+				}
+				err_string = sb_validate(sb_op_clearnum);
+				if (err_string) {
+					printf("FAILED: Validation Error - "
+					"Inconsitent Internal State:\n%s\n", err_string);
+					exit(74);
 				}
 				sb_clearnum(sb_op_clearnum, idx1, num);
 				err_string = sb_validate(sb_op_clearnum);

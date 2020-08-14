@@ -14,6 +14,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L  // For getline(3) and ssize_t
+#include <argz.h>  // Included for definition of error_t on Arm based systems.
 #include <assert.h>
 #include <errno.h>
 #include <malloc.h>
