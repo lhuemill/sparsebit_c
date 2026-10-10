@@ -408,6 +408,21 @@ sb_idx_t sb_firstset(const sb_t* sb)
 	return 0;
 }
 
+sb_idx_t sb_lastset(const sb_t* sb)
+{
+	if (sb->root != NULL) {
+		node_t *node = node_maximum(sb->root);
+		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
+			if (node->mask & MASK_BIT_MASK(n)) {
+			return node->idx_start + n;
+		}
+		assert(0);  // Node with no mask bits set.
+	}
+}
+
+return 0;
+}
+
 sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
 {
 	const node_t *node = node_find_or_next_const(sb, idx);

@@ -43,6 +43,7 @@ bool sb_allset(const sb_t* sb);
 sb_num_t sb_numset(const sb_t* sb);
 bool sb_isset(const sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_firstset(const sb_t* sb);
+sb_idx_t sb_lastset(const sb_t* sb);
 sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx);
 sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth);
