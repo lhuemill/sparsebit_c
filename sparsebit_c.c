@@ -1,4 +1,4 @@
-/* Copyright 2020 Louis Huemiller Jr.
+/* Copyright 2026 Louis Huemiller Jr.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ typedef uint64_t mask_t;
 #define NODE_PRI_MASK PRIx64
 #define NUM_MASK_BITS (sizeof(mask_t) * BITS_PER_BYTE)
 #define MASK_BOUNDARY(idx) ((idx) - ((idx) % NUM_MASK_BITS))
+#define MASK_BIT_MASK(bit_idx) ((mask_t)1 << (bit_idx))
 
 struct node {
 	sb_idx_t idx_start;  // Index of first bit in mask.
@@ -219,7 +220,7 @@ int sb_set(sb_t* sb, sb_idx_t idx)
 		}
 	}
 
-	mask_t mask = (mask_t)1 << (idx - node->idx_start);
+	mask_t mask = MASK_BIT_MASK(idx - node->idx_start);
 	if ((node->mask & mask) == 0) {
 		node->mask |= mask;
 		num_set_adjust(node, 1, true);
@@ -298,7 +299,7 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 		&& ((idx - node_start->idx_start) < NUM_MASK_BITS)) {
 		unsigned int offset = idx - node_start->idx_start;
 		assert(offset < NUM_MASK_BITS);
-		mask_t mask = (mask_t)1 << offset;
+		mask_t mask = MASK_BIT_MASK(offset);
 		if ((mask & node_start->mask) == 0) {
 			node_start->mask |= mask;
 			num_mask_set++;
@@ -316,7 +317,7 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			&& ((idx - node_end->idx_start) < NUM_MASK_BITS)) {
 			unsigned int offset = idx - node_end->idx_start;
 			assert(offset < NUM_MASK_BITS);
-			mask_t mask = (mask_t)1 << offset;
+			mask_t mask = MASK_BIT_MASK(offset);
 			if ((mask & node_end->mask) == 0) {
 				node_end->mask |= mask;
 				num_mask_set++;
@@ -381,7 +382,7 @@ bool sb_isset(const sb_t* sb, sb_idx_t idx)
 	}
 
 	if ((idx - node->idx_start) < NUM_MASK_BITS) {
-		return node->mask & ((mask_t)1 << (idx - node->idx_start));
+		return node->mask & MASK_BIT_MASK(idx - node->idx_start);
 	} else {
 		// Index of bit is within range of bits specified by setting of
 		// set_after and thus is set.
@@ -397,7 +398,7 @@ sb_idx_t sb_firstset(const sb_t* sb)
 	if (sb->root != NULL) {
 		node_t *node = node_minimum(sb->root);
 		for (sb_idx_t n = 0; n < NUM_MASK_BITS; n++) {
-			if (node->mask & ((mask_t)1 << n)) {
+			if (node->mask & MASK_BIT_MASK(n)) {
 				return node->idx_start + n;
 			}
 		}
@@ -424,7 +425,7 @@ sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
 			// idx?
 			for (unsigned int n = (idx - node->idx_start) + 1;
 				n < NUM_MASK_BITS; n++) {
-				if (node->mask & ((mask_t)1 << n)) {
+				if (node->mask & MASK_BIT_MASK(n)) {
 					return node->idx_start + n;
 				}
 			}
@@ -455,7 +456,7 @@ sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
 	// idx.  The first mask bit set in node, will be for the first set bit
 	// after idx.
 	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
-		if (node->mask & ((mask_t)1 << n)) {
+		if (node->mask & MASK_BIT_MASK(n)) {
 			return node->idx_start + n;
 		}
 	}
@@ -485,7 +486,7 @@ sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx)
 		// If present, return index of first set mask bit before the bit
 		// of idx.
 		for (int n = (idx - node->idx_start) - 1; n >= 0; n--) {
-			if (node->mask & ((mask_t)1 << n)) {
+			if (node->mask & MASK_BIT_MASK(n)) {
 				return node->idx_start + n;
 			}
 		}
@@ -506,7 +507,7 @@ sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx)
 		return node->idx_start + NUM_MASK_BITS + node->set_after - 1;
 	}
 	for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
-		if (node->mask & ((mask_t)1 << n)) {
+		if (node->mask & MASK_BIT_MASK(n)) {
 			return node->idx_start + n;
 		}
 	}
@@ -551,7 +552,7 @@ sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth)
 		} else {
 			unsigned int num_mask_set = 0;
 			for (unsigned int mask_idx = 0; mask_idx < NUM_MASK_BITS; mask_idx++) {
-				if (node->mask & ((mask_t)1 << mask_idx)) {
+				if (node->mask & MASK_BIT_MASK(mask_idx)) {
 					num_mask_set++;
 				}
 				if ((num + 1) == (low + num_mask_set)) {
@@ -582,7 +583,7 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 		}
 	}
 
-	mask_t mask = (mask_t)1 << (idx - node->idx_start);
+	mask_t mask = MASK_BIT_MASK(idx - node->idx_start);
 	if (node->mask & mask) {
 		node->mask &= ~mask;
 		num_set_adjust(node, 1, false);
@@ -602,7 +603,7 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 			node->idx_start += NUM_MASK_BITS;
 			for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
 				&& (node->set_after > 0); bit_idx++) {
-				node->mask |= (mask_t)1 << bit_idx;
+				node->mask |= MASK_BIT_MASK(bit_idx);
 				node->set_after--;
 			}
 		}
@@ -698,7 +699,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			&& ((idx - node_start->idx_start) < NUM_MASK_BITS)) {
 			unsigned int offset = idx - node_start->idx_start;
 			assert(offset < NUM_MASK_BITS);
-			mask_t mask = (mask_t)1 << offset;
+			mask_t mask = MASK_BIT_MASK(offset);
 			if ((mask & node_start->mask) != 0) {
 				node_start->mask &= ~mask;
 				num_cleared++;
@@ -731,7 +732,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 				node_start->idx_start += NUM_MASK_BITS;
 				for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
 					&& (node_start->set_after > 0); bit_idx++) {
-					node_start->mask |= (mask_t)1 << bit_idx;
+					node_start->mask |= MASK_BIT_MASK(bit_idx);
 					node_start->set_after--;
 				}
 			}
@@ -747,7 +748,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 			&& ((idx - node_end->idx_start) < NUM_MASK_BITS)) {
 			unsigned int offset = idx - node_end->idx_start;
 			assert(offset < NUM_MASK_BITS);
-			mask_t mask = (mask_t)1 << offset;
+			mask_t mask = MASK_BIT_MASK(offset);
 			if ((mask & node_end->mask) != 0) {
 				node_end->mask &= ~mask;
 				num_cleared++;
@@ -772,7 +773,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 				node_end->idx_start += NUM_MASK_BITS;
 				for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
 					&& (node_end->set_after > 0); bit_idx++) {
-					node_end->mask |= (mask_t)1 << bit_idx;
+					node_end->mask |= MASK_BIT_MASK(bit_idx);
 					node_end->set_after--;
 				}
 			}
@@ -818,7 +819,7 @@ sb_idx_t sb_firstcleared(const sb_t* sb)
 
 			if (node->mask != ~(mask_t)0) {
 				for (sb_idx_t n = 0; n < NUM_MASK_BITS; n++) {
-					if ((node->mask & ((mask_t)1 << n)) == 0) {
+					if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 						return node->idx_start + n;
 					}
 				}
@@ -850,7 +851,7 @@ sb_idx_t sb_nextcleared(const sb_t* sb, sb_idx_t idx)
 		// bit for idx + 1?
 		for (unsigned int n = (idx + 1) - node->idx_start;
 			n < NUM_MASK_BITS; n++) {
-			if ((node->mask & ((mask_t)1 << n)) == 0) {
+			if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 				return node->idx_start + n;
 			}
 		}
@@ -877,7 +878,7 @@ sb_idx_t sb_nextcleared(const sb_t* sb, sb_idx_t idx)
 			// Any cleared bits in the node?
 			if (node->mask != ~(mask_t)0) {
 				for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
-					if ((node->mask & ((mask_t)1 << n)) == 0) {
+					if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 						return node->idx_start + n;
 					}
 				}
@@ -917,7 +918,7 @@ sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 	for (int n = (((idx - 1) - node->idx_start) >= NUM_MASK_BITS)
 		? NUM_MASK_BITS - 1
 		: (idx - 1) - node->idx_start; n >= 0; n--) {
-		if ((node->mask & ((mask_t)1 << n)) == 0) {
+		if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 			return node->idx_start + n;
 		}
 	}
@@ -940,7 +941,7 @@ sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 		}
 
 		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
-			if ((prev->mask & ((mask_t)1 << n)) == 0) {
+			if ((prev->mask & MASK_BIT_MASK(n)) == 0) {
 				return prev->idx_start + n;
 			}
 		}
@@ -968,7 +969,7 @@ sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 			// Any cleared bits in the node?
 			if (node->mask != ~(mask_t)0) {
 				for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
-					if ((node->mask & ((mask_t)1 << n)) == 0) {
+					if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 						return node->idx_start + n;
 					}
 				}
@@ -1893,7 +1894,7 @@ static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at)
 	first->set_after -= second->set_after;
 	for (unsigned int bit_idx = 0; (second->set_after > 0)
 		&& (bit_idx < NUM_MASK_BITS); bit_idx++) {
-		second->mask |= (mask_t)1 << bit_idx;
+		second->mask |= MASK_BIT_MASK(bit_idx);
 		second->set_after--;
 	}
 	num_set_adjust(first, num_set_node(second), false);
@@ -1942,7 +1943,7 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 		// Add next nodes contigously set leading mask bits
 		// to previous nodes set_after value.
 		for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
-			if ((((mask_t)1 << n) & next->mask) != 0) {
+			if ((MASK_BIT_MASK(n) & next->mask) != 0) {
 				prev->set_after++;
 				adj_amt++;
 				num_cleared++;
@@ -1959,7 +1960,7 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 		if (next->set_after > 0) {
 			for (unsigned int n = 0; (n < NUM_MASK_BITS)
 				&& (next->set_after > 0); n++) {
-				next->mask |= (mask_t)1 << n;
+				next->mask |= MASK_BIT_MASK(n);
 				next->set_after--;
 			}
 		} else {
@@ -2061,7 +2062,7 @@ static unsigned int num_set_mask(mask_t mask)
 	// num set bits, otherwise use non-loop method described in the
 	// book Hacker's Delight.
 	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
-		if (mask & ((mask_t)1 << n)) {
+		if (mask & MASK_BIT_MASK(n)) {
 			num++;
 		}
 	}
