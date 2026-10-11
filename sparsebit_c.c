@@ -21,12 +21,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <unistd.h>
+
+#include <arpa/inet.h>
 
 #define SB_TEST
 #include "sparsebit_c.h"
 
-#define BITS_PER_BYTE 8
 #define MEMCLEAR(p, n) memset((p), 0, (n))
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+#define CONST_STRLEN(str) (ARRAY_SIZE(str) - 1)
 
 // Complete definition of sparsebit root structure.
 struct node;
@@ -43,7 +47,7 @@ enum node_color {
 
 typedef uint64_t mask_t;
 #define NODE_PRI_MASK PRIx64
-#define NUM_MASK_BITS (sizeof(mask_t) * BITS_PER_BYTE)
+#define NUM_MASK_BITS (sizeof(mask_t) * CHAR_BIT)
 #define MASK_BOUNDARY(idx) ((idx) - ((idx) % NUM_MASK_BITS))
 #define MASK_BIT_MASK(bit_idx) ((mask_t)1 << (bit_idx))
 
@@ -113,6 +117,17 @@ static void node_delete(sb_t *sb, node_t *node);
 static void node_delete_fixup(sb_t *sb, node_t *node);
 static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
 	unsigned int indent);
+
+static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx);
+static int record_write(FILE *file, const union sb_rcd *record,
+	sb_idx_t *base_idx);
+static sb_idx_t record_idx_adjust(const union sb_rcd *record);
+static void record_to_record_packed(const union sb_rcd *record,
+	union sb_rcd_packed *record_packed);
+static sb_rcd_id_t packed_id_byte_to_id(uint8_t packed_id_byte);
+static void record_packed_to_record(const union sb_rcd_packed *record_packed,
+	union sb_rcd *record);
+static size_t record_packed_size(sb_rcd_id_t id);
 
 sb_t *sb_create(void)
 {
@@ -1909,6 +1924,222 @@ sb_pdynstr_t sb_dump(const sb_t* sb)
 	return rv_str;
 }
 
+int sb_save(FILE *file, const sb_t *sb)
+{
+	int rv;
+	size_t sz;
+	sb_idx_t idx = 0;
+
+	// Write sparsebit file identifier and version.
+	errno = 0;
+	sz = fwrite(SB_ID, CONST_STRLEN(SB_ID), 1, file);
+	if (sz != 1) {
+		return -1;
+	}
+	unsigned char version = SB_VERSION;
+	errno = 0;
+	sz = fwrite(&version, sizeof(version), 1, file);
+	if (sz != 1) {
+		return -1;
+	}
+
+	// For each node
+	if (sb->root) {
+		for (node_t *node = node_minimum(sb->root); node != NULL;
+			node = node_next(node)) {
+			rv = node_write(file, node, &idx);
+
+		}
+	}
+
+	// Write END record.
+	sb_rcd_end_packed_t record_end_packed;
+	MEMCLEAR(&record_end_packed, sizeof(record_end_packed));
+	record_end_packed.id = SB_RCD_END;
+	errno = 0;
+	sz = fwrite(&record_end_packed, sizeof(record_end_packed), 1, file);
+	if (sz != 1) {
+		return -1;
+	}
+
+	return 0;
+}
+
+int sb_load(FILE *file, sb_t *sb)
+{
+	int rv;
+	size_t sz;
+
+	char file_id[CONST_STRLEN(SB_ID)];
+	uint8_t version;
+
+	// Read and validate sparsebit file identifier and version.
+	errno = 0;
+	sz = fread(file_id, 1, sizeof(file_id), file);
+	if (sz != sizeof(file_id)) {
+		if (sz == 0) { errno = EPROTO; return -1; }
+		fprintf(stderr, "Unexpected sparsebit file idenifier length of: %zu\n",
+			sz);
+		errno = EPROTO;
+		return -1;
+	}
+	if (strncmp(file_id, SB_ID, CONST_STRLEN(SB_ID)) != 0) {
+		fprintf(stderr, "Unexpected sparsebit file identifier of: %*s\n",
+			rv, file_id);
+		errno = EPROTO;
+		return -1;
+	}
+
+	errno = 0;
+	sz = fread(&version, 1, sizeof(version), file);
+	if (sz != sizeof(version)) {
+		if (sz == 0) { errno = EPROTO; return -1; }
+		fprintf(stderr, "Unexpected version length of: %zu\n",
+			sz);
+		errno = EPROTO;
+		return -1;
+	}
+	if (version > SB_VERSION) {
+		fprintf(stderr, "Unexpected sparsebit file version of: %u\n",
+			(unsigned int) version);
+		errno = EPROTO;
+		return -1;
+	}
+
+	union sb_rcd_packed record_packed;
+
+	sb_idx_t base_idx = 0;
+	do {
+		int rv;
+
+		errno = 0;
+		sz = fread(&record_packed, sizeof(record_packed.id), 1, file);
+		if (sz != 1) {
+			if (feof(file)) { break; } /* End-Of-FIle */
+			if (sz == 0) { errno = EPROTO; return -1; }
+			if (sz != sizeof(record_packed.id)) {
+				fprintf(stderr, "Unexpected read length of packed record ID, sz: %zu\n",
+					sz);
+				errno = EPROTO;
+				return -1;
+			}
+		}
+
+		sb_rcd_id_t id = packed_id_byte_to_id(record_packed.id);
+
+		// If needed, read in rest of packed record.
+		size_t sz = record_packed_size(id);
+		if (sz != sizeof(record_packed.id)) {
+			assert(sz > sizeof(record_packed.id));
+			size_t read_sz = sz - sizeof(record_packed.id);
+			errno = 0;
+			sz = fread(((char *) &record_packed) + sizeof(record_packed.id),
+				1, read_sz, file);
+				if (sz != read_sz) {
+					if (sz == 0) { errno = EPROTO; return -1; }
+					fprintf(stderr, "Partial Packed Record Read, sz: %zu\n", sz);
+					errno = EPROTO;
+					return -1;
+				}
+		}
+
+		union sb_rcd record;
+		record_packed_to_record(&record_packed, &record);
+
+		switch (id) {
+  	case SB_RCD_INC4_MASK8:
+			base_idx += record.inc4_mask8.amt;
+			for (unsigned int i = 0; i < 8; i++) {
+				if ((1ull << i) & record.inc4_mask8.mask) {
+					rv = sb_set(sb, base_idx + i);
+				}
+			}
+			base_idx += 8;
+			break;
+
+  	case SB_RCD_INC4_MASK16:
+			base_idx += record.inc4_mask16.amt;
+			for (unsigned int i = 0; i < 16; i++) {
+				if ((1ull << i) & record.inc4_mask16.mask) {
+					rv = sb_set(sb, base_idx + i);
+				}
+			}
+			base_idx += 16;
+			break;
+
+  	case SB_RCD_INC4_MASK32:
+			base_idx += record.inc4_mask32.amt;
+			for (unsigned int i = 0; i < 32; i++) {
+				if ((1ull << i) & record.inc4_mask32.mask) {
+					rv = sb_set(sb, base_idx + i);
+				}
+			}
+			base_idx += 32;
+			break;
+
+  	case SB_RCD_INC4_MASK64:
+			base_idx += record.inc4_mask64.amt;
+			for (unsigned int i = 0; i < 64; i++) {
+				if ((1ull << i) & record.inc4_mask64.mask) {
+					rv = sb_set(sb, base_idx + i);
+				}
+			}
+			base_idx += 64;
+			break;
+
+		case SB_RCD_INC12:
+			base_idx += record.inc12.amt;
+			break;
+
+		case SB_RCD_INC12_MASK8:
+			base_idx += record.inc12_mask8.amt;
+			for (unsigned int i = 0; i < 8; i++) {
+				if ((1ull << i) & record.inc12_mask8.mask) {
+					rv = sb_set(sb, base_idx + i);
+				}
+			}
+			base_idx += 8;
+			break;
+
+		case SB_RCD_INC12_MASK16:
+			base_idx += record.inc12_mask16.amt;
+			for (unsigned int i = 0; i < 16; i++) {
+				if ((1ull << i) & record.inc12_mask16.mask) {
+					rv = sb_set(sb, base_idx + i);
+				}
+			}
+			base_idx += 16;
+			break;
+
+  	case SB_RCD_END:
+			break;
+
+  	case SB_RCD_SETNUM8:
+			rv = sb_setnum(sb, base_idx, record.setnum8.amt);
+			base_idx += record.setnum8.amt;
+			break;
+
+  	case SB_RCD_SETNUM64:
+			rv = sb_setnum(sb, base_idx, record.setnum64.amt);
+			base_idx += record.setnum64.amt;
+			break;
+
+  	case SB_RCD_INC64:
+			base_idx += record.inc64.amt;
+			break;
+
+  	case SB_RCD_INC7_SET1:
+			base_idx += record.inc7_set1.amt;
+			rv = sb_set(sb, base_idx);
+			base_idx += 1;
+			break;
+		}
+		if (id == SB_RCD_END) { break; }
+	} while(true);
+
+	return 0;
+}
+
 static bool node_prev_adj(node_t *node)
 {
 	node_t *prev = node_prev(node);
@@ -2233,3 +2464,445 @@ void sb_dynstr_free(sb_pdynstr_t pdynstr)
 {
 	free(pdynstr);
 }
+
+static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx)
+{
+	int rv;
+	size_t sz;
+	union sb_rcd record;
+
+	int mask_first_set_idx = -1;
+	int mask_last_set_idx = -1;
+	for (unsigned int n1 = 0; n1 < sizeof(node->mask) * CHAR_BIT; n1++) {
+		if ((node->mask & (1ull << n1))) {
+ 			if (mask_first_set_idx < 0) {
+				mask_first_set_idx = n1;
+			}
+			mask_last_set_idx = n1;
+		}
+	}
+
+	// If needed increament current index up to nodes starting index.
+	if (*base_idx != node->idx_start) {
+		assert(*base_idx <= node->idx_start);
+		sb_idx_t diff = node->idx_start - *base_idx;
+		if (diff <= 0xfff) {
+			MEMCLEAR(&record, sizeof(record.inc12));
+			record.inc12.id = SB_RCD_INC12;
+			record.inc12.amt = diff;
+		} else {
+			MEMCLEAR(&record, sizeof(record.inc64));
+			record.inc64.id = SB_RCD_INC64;
+			record.inc64.amt = diff;
+		}
+		rv = record_write(file, &record, base_idx);
+	}
+
+	// Write the nodes mask value
+	MEMCLEAR(&record, sizeof(record.inc64));
+	record.inc4_mask64.id = SB_RCD_INC4_MASK64;
+	record.inc4_mask64.mask = node->mask;
+	rv = record_write(file, &record, base_idx);
+
+	if (node->set_after) {
+		if (node->set_after <= 0xff) {
+			MEMCLEAR(&record, sizeof(record.setnum8));
+			record.setnum8.id = SB_RCD_SETNUM8;
+			record.setnum8.amt = node->set_after;
+		} else {
+			MEMCLEAR(&record, sizeof(record.setnum64));
+			record.setnum64.id = SB_RCD_SETNUM64;
+			record.setnum64.amt = node->set_after;
+		}
+		rv = record_write(file, &record, base_idx);
+	}
+
+	return 0;
+}
+
+static int record_write(FILE *file, const union sb_rcd *record,
+	sb_idx_t *base_idx)
+{
+	int rv;
+	size_t sz;
+
+	union sb_rcd_packed record_packed;
+
+	record_to_record_packed(record, &record_packed);
+
+// rv = write(fd, &record_packed, record_packed_size(record->id));
+	errno = 0;
+	sz = fwrite(&record_packed, record_packed_size(record->id), 1, file);
+	if (sz != 1) {
+		return -1;
+	}
+
+	*base_idx += record_idx_adjust(record);
+
+	return 0;
+}
+
+static sb_idx_t record_idx_adjust(const union sb_rcd *record)
+{
+	switch (record->id) {
+  case SB_RCD_INC4_MASK8:
+		return record->inc4_mask8.amt + 8;
+
+  case SB_RCD_INC4_MASK16:
+		return record->inc4_mask16.amt + 16;
+
+  case SB_RCD_INC4_MASK32:
+		return record->inc4_mask32.amt + 32;
+
+  case SB_RCD_INC4_MASK64:
+		return record->inc4_mask64.amt + 64;
+
+	case SB_RCD_INC12:
+		return record->inc12.amt;
+
+	case SB_RCD_INC12_MASK8:
+		return record->inc12.amt + 1;
+
+	case SB_RCD_INC12_MASK16:
+		return record->inc12.amt + 2;
+
+  case SB_RCD_END:
+		return 0;
+
+  case SB_RCD_SETNUM8:
+		return record->setnum8.amt;
+
+  case SB_RCD_SETNUM64:
+		return record->setnum64.amt;
+
+  case SB_RCD_INC64:
+		return record->inc64.amt;
+
+  case SB_RCD_INC7_SET1:
+		return record->inc7_set1.amt + 1;
+	}
+
+	assert(false); // Unknown record type
+	return 0;
+}
+
+static void record_to_record_packed(const union sb_rcd *record,
+	union sb_rcd_packed *record_packed)
+{
+	switch (record->id) {
+  case SB_RCD_INC4_MASK8:
+		MEMCLEAR(&record_packed->inc4_mask8, sizeof(record_packed->inc4_mask8));
+		record_packed->inc4_mask8.id_amt = SB_RCD_INC4_MASK8 & 0xf0;
+		record_packed->inc4_mask8.id_amt |= record->inc4_mask8.amt & 0x0f;
+		record_packed->inc4_mask8.mask = record->inc4_mask8.mask;
+		return;
+
+  case SB_RCD_INC4_MASK16:
+		MEMCLEAR(&record_packed->inc4_mask16, sizeof(record_packed->inc4_mask16));
+		record_packed->inc4_mask16.id_amt = SB_RCD_INC4_MASK16 & 0xf0;
+		record_packed->inc4_mask16.id_amt |= record->inc4_mask16.amt & 0x0f;
+		record_packed->inc4_mask16.mask[0] = record->inc4_mask16.mask >> 8;
+		record_packed->inc4_mask16.mask[1] = record->inc4_mask16.mask & 0xff;
+		return;
+
+  case SB_RCD_INC4_MASK32:
+		MEMCLEAR(&record_packed->inc4_mask32, sizeof(record_packed->inc4_mask32));
+		record_packed->inc4_mask32.id_amt = SB_RCD_INC4_MASK32 & 0xf0;
+		record_packed->inc4_mask32.id_amt |= record->inc4_mask32.amt & 0x0f;
+		record_packed->inc4_mask32.mask[0]
+			= (record->inc4_mask32.mask >> 24) & 0xff;
+		record_packed->inc4_mask32.mask[1]
+			= (record->inc4_mask32.mask >> 16) & 0xff;
+		record_packed->inc4_mask32.mask[2]
+			= (record->inc4_mask32.mask >> 8)  & 0xff;
+		record_packed->inc4_mask32.mask[3]
+			= (record->inc4_mask32.mask >> 0)  & 0xff;
+		return;
+
+  case SB_RCD_INC4_MASK64:
+		MEMCLEAR(&record_packed->inc4_mask64, sizeof(record_packed->inc4_mask64));
+		record_packed->inc4_mask64.id_amt = SB_RCD_INC4_MASK64 & 0xf0;
+		record_packed->inc4_mask64.id_amt |= record->inc4_mask64.amt & 0x0f;
+
+		for (unsigned int i0 = 0; i0 < 8; i0++) {
+			record_packed->inc4_mask64.mask[i0] = 0;
+			for (unsigned int i1 = 0; i1 < 8; i1++) {
+				if (record->inc4_mask64.mask & MASK_BIT_MASK(i0 * 8 + i1)) {
+					record_packed->inc4_mask64.mask[i0] |= 0x80 >> i1;
+				}
+			}
+		}
+		return;
+
+	case SB_RCD_INC12:
+		MEMCLEAR(&record_packed->inc12, sizeof(record_packed->inc12));
+		record_packed->inc12.id_amt0 = SB_RCD_INC12 & 0xf0;
+		record_packed->inc12.id_amt0 |= (record->inc12.amt >> 8) & 0x0f;
+		record_packed->inc12.amt1 = record->inc12.amt & 0xff;
+		return;
+
+	case SB_RCD_INC12_MASK8:
+		record_packed->inc12_mask8.id_amt0 = SB_RCD_END & 0xf0;
+		record_packed->inc12_mask8.id_amt0 |= (record->inc12_mask8.amt >> 8)
+			& 0x0f;
+		record_packed->inc12_mask8.amt1 = record->inc12_mask8.amt & 0xff;
+		record_packed->inc12_mask8.mask = record->inc12_mask8.mask;
+		return;
+
+	case SB_RCD_INC12_MASK16:
+		MEMCLEAR(&record_packed->inc12_mask16, sizeof(record_packed->inc12_mask16));
+		record_packed->inc12_mask16.id_amt0 = SB_RCD_END & 0xf0;
+		record_packed->inc12_mask16.id_amt0 |= (record->inc12_mask16.amt >> 8)
+			& 0x0f;
+		record_packed->inc12_mask16.amt1 = record->inc12_mask16.amt & 0xff;
+		record_packed->inc12_mask16.mask[0] = (record->inc12_mask16.mask >> 8)
+			& 0xff;
+		record_packed->inc12_mask16.mask[1] = record->inc12_mask16.mask & 0xff;
+		return;
+
+  case SB_RCD_END:
+		MEMCLEAR(&record_packed->end, sizeof(record_packed->end));
+		record_packed->end.id = SB_RCD_END;
+		return;
+
+  case SB_RCD_SETNUM8:
+		MEMCLEAR(&record_packed->setnum8, sizeof(record_packed->setnum8));
+		record_packed->setnum8.id = SB_RCD_SETNUM8;
+		record_packed->setnum8.amt = record->setnum8.amt;
+		return;
+
+  case SB_RCD_SETNUM64:
+		MEMCLEAR(&record_packed->setnum64, sizeof(record_packed->setnum64));
+		record_packed->setnum64.id = SB_RCD_SETNUM64;
+		record_packed->setnum64.amt[0] = (record->setnum64.amt >> 56) & 0xff;
+		record_packed->setnum64.amt[1] = (record->setnum64.amt >> 48) & 0xff;
+		record_packed->setnum64.amt[2] = (record->setnum64.amt >> 40) & 0xff;
+		record_packed->setnum64.amt[3] = (record->setnum64.amt >> 32) & 0xff;
+		record_packed->setnum64.amt[4] = (record->setnum64.amt >> 24) & 0xff;
+		record_packed->setnum64.amt[5] = (record->setnum64.amt >> 16) & 0xff;
+		record_packed->setnum64.amt[6] = (record->setnum64.amt >> 8)  & 0xff;
+		record_packed->setnum64.amt[7] = (record->setnum64.amt >> 0)  & 0xff;
+		return;
+
+  case SB_RCD_INC64:
+		MEMCLEAR(&record_packed->inc64, sizeof(record_packed->inc64));
+		record_packed->inc64.id = SB_RCD_INC64;
+		record_packed->inc64.amt[0] = (record->inc64.amt >> 56) & 0xff;
+		record_packed->inc64.amt[1] = (record->inc64.amt >> 48) & 0xff;
+		record_packed->inc64.amt[2] = (record->inc64.amt >> 40) & 0xff;
+		record_packed->inc64.amt[3] = (record->inc64.amt >> 32) & 0xff;
+		record_packed->inc64.amt[4] = (record->inc64.amt >> 24) & 0xff;
+		record_packed->inc64.amt[5] = (record->inc64.amt >> 16) & 0xff;
+		record_packed->inc64.amt[6] = (record->inc64.amt >> 8)  & 0xff;
+		record_packed->inc64.amt[7] = (record->inc64.amt >> 0)  & 0xff;
+		return;
+
+  case SB_RCD_INC7_SET1:
+		MEMCLEAR(&record_packed->inc7_set1, sizeof(record_packed->inc7_set1));
+		record_packed->inc7_set1.id_amt = SB_RCD_INC7_SET1 & 0x80;
+		record_packed->inc7_set1.id_amt |= record->inc7_set1.amt & 0x7f;
+		return;
+	}
+
+	assert(false); // Unknown record type
+}
+
+static sb_rcd_id_t packed_id_byte_to_id(uint8_t packed_id_byte)
+{
+	if ((packed_id_byte & 0xf0) <= 0x6f) { return packed_id_byte & 0xf0; }
+	if ((packed_id_byte & 0x80) == 0x80) { return 0x80; }
+
+	return packed_id_byte;
+}
+
+static void record_packed_to_record(const union sb_rcd_packed *record_packed,
+	union sb_rcd *record)
+{
+	sb_rcd_id_t id = packed_id_byte_to_id(record_packed->id);
+
+	switch (id) {
+  case SB_RCD_INC4_MASK8:
+		MEMCLEAR(&record->inc4_mask8, sizeof(record->inc4_mask8));
+		record->inc4_mask8.id = SB_RCD_INC4_MASK8;
+		record->inc4_mask8.amt = record_packed->inc4_mask8.id_amt & 0x0f;
+		record->inc4_mask8.mask = 0;
+		for (unsigned int i1 = 0; i1 < 8; i1++) {
+			if (record_packed->inc4_mask8.mask & (0x80 >> i1)) {
+				record->inc4_mask8.mask |= MASK_BIT_MASK(i1);
+			}
+		}
+		return;
+
+  case SB_RCD_INC4_MASK16:
+		MEMCLEAR(&record->inc4_mask16, sizeof(record->inc4_mask16));
+		record->inc4_mask16.id = SB_RCD_INC4_MASK16;
+		record->inc4_mask16.amt = record_packed->inc4_mask16.id_amt & 0x0f;
+		record->inc4_mask16.mask = 0;
+		for (unsigned int i0 = 0; i0 < 2; i0++) {
+			if (record_packed->inc4_mask16.mask[i0] == 0) { continue; }
+			for (unsigned int i1 = 0; i1 < 8; i1++) {
+				if (record_packed->inc4_mask16.mask[i0] & (0x80 >> i1)) {
+					record->inc4_mask16.mask |= MASK_BIT_MASK(i0 * 8 + i1);
+				}
+			}
+		}
+		return;
+
+  case SB_RCD_INC4_MASK32:
+		MEMCLEAR(&record->inc4_mask32, sizeof(record->inc4_mask32));
+		record->inc4_mask32.id = SB_RCD_INC4_MASK32;
+		record->inc4_mask32.amt = record_packed->inc4_mask32.id_amt & 0x0f;
+		record->inc4_mask32.mask = 0;
+		for (unsigned int i0 = 0; i0 < 4; i0++) {
+			if (record_packed->inc4_mask32.mask[i0] == 0) { continue; }
+			for (unsigned int i1 = 0; i1 < 8; i1++) {
+				if (record_packed->inc4_mask32.mask[i0] & (0x80 >> i1)) {
+					record->inc4_mask32.mask |= MASK_BIT_MASK(i0 * 8 + i1);
+				}
+			}
+		}
+		return;
+
+  case SB_RCD_INC4_MASK64:
+		MEMCLEAR(&record->inc4_mask64, sizeof(record->inc4_mask64));
+		record->inc4_mask64.id = SB_RCD_INC4_MASK64;
+		record->inc4_mask64.amt = record_packed->inc4_mask64.id_amt & 0x0f;
+		record->inc4_mask64.mask = 0;
+		for (unsigned int i0 = 0; i0 < 8; i0++) {
+			if (record_packed->inc4_mask64.mask[i0] == 0) { continue; }
+			for (unsigned int i1 = 0; i1 < 8; i1++) {
+				if (record_packed->inc4_mask64.mask[i0] & (0x80 >> i1)) {
+					record->inc4_mask64.mask |= MASK_BIT_MASK(i0 * 8 + i1);
+				}
+			}
+		}
+		return;
+
+	case SB_RCD_INC12:
+		MEMCLEAR(&record->inc12, sizeof(record->inc12));
+		record->inc12.id = SB_RCD_INC12;
+		record->inc12.amt = (((uint16_t) record_packed->inc12.id_amt0 & 0x0f) << 8)
+			| record_packed->inc12.amt1;
+		return;
+
+	case SB_RCD_INC12_MASK8:
+		record->inc12_mask8.id = SB_RCD_INC12_MASK8;
+		record->inc12_mask8.amt = (record_packed->inc12_mask8.id_amt0 & 0x0f) << 8
+				+ record_packed->inc12_mask8.amt1;
+		record->inc12_mask8.mask = 0;
+		for (unsigned int i1 = 0; i1 < 8; i1++) {
+			if (record_packed->inc12_mask8.mask & (0x80 >> i1)) {
+				record->inc12_mask8.mask |= MASK_BIT_MASK(i1);
+			}
+		}
+		return;
+
+	case SB_RCD_INC12_MASK16:
+		record->inc12_mask16.id = SB_RCD_INC12_MASK16;
+		record->inc12_mask16.amt
+			= (record_packed->inc12_mask16.id_amt0 & 0x0f) << 8
+				+ record_packed->inc12_mask16.amt1;
+		record->inc12_mask16.mask = 0;
+		for (unsigned int i0 = 0; i0 < 2; i0++) {
+			if (record_packed->inc12_mask16.mask[i0] == 0) { continue; }
+			for (unsigned int i1 = 0; i1 < 8; i1++) {
+				if (record_packed->inc12_mask16.mask[i0] & (0x80 >> i1)) {
+					record->inc12_mask16.mask |= MASK_BIT_MASK(i0 * 8 + i1);
+				}
+			}
+		}
+		return;
+
+  case SB_RCD_END:
+		MEMCLEAR(&record->end, sizeof(record->end));
+		record->end.id = SB_RCD_END;
+		return;
+
+  case SB_RCD_SETNUM8:
+		MEMCLEAR(&record->setnum8, sizeof(record->setnum8));
+		record->setnum8.id = SB_RCD_SETNUM8;
+		record->setnum8.amt = record_packed->setnum8.amt;
+		return;
+
+  case SB_RCD_SETNUM64:
+		MEMCLEAR(&record->setnum64, sizeof(record->setnum64));
+		record->setnum64.id = SB_RCD_SETNUM64;
+		record->setnum64.amt = ((uint64_t) record_packed->setnum64.amt[0] << 56)
+			| ((uint64_t) record_packed->setnum64.amt[1] << 48)
+			| ((uint64_t) record_packed->setnum64.amt[2] << 40)
+			| ((uint64_t) record_packed->setnum64.amt[3] << 32)
+			| ((uint64_t) record_packed->setnum64.amt[4] << 24)
+			| ((uint64_t) record_packed->setnum64.amt[5] << 16)
+			| ((uint64_t) record_packed->setnum64.amt[6] << 8)
+			| ((uint64_t) record_packed->setnum64.amt[7] << 0);
+		return;
+
+  case SB_RCD_INC64:
+		MEMCLEAR(&record->inc64, sizeof(record->inc64));
+		record->inc64.id = SB_RCD_INC64;
+		record->inc64.amt = ((uint64_t) record_packed->inc64.amt[0] << 56)
+			| ((uint64_t) record_packed->inc64.amt[1] << 48)
+			| ((uint64_t) record_packed->inc64.amt[2] << 40)
+			| ((uint64_t) record_packed->inc64.amt[3] << 32)
+			| ((uint64_t) record_packed->inc64.amt[4] << 24)
+			| ((uint64_t) record_packed->inc64.amt[5] << 16)
+			| ((uint64_t) record_packed->inc64.amt[6] << 8)
+			| ((uint64_t) record_packed->inc64.amt[7] << 0);
+		return;
+
+  case SB_RCD_INC7_SET1:
+		MEMCLEAR(&record->inc7_set1, sizeof(record->inc7_set1));
+		record->inc7_set1.id = SB_RCD_INC7_SET1;
+		record->inc7_set1.amt |= record_packed->inc7_set1.id_amt & 0x7f;
+		return;
+	}
+
+	assert(false); // Unknown record type
+}
+
+static size_t record_packed_size(sb_rcd_id_t id)
+{
+	switch (id) {
+  case SB_RCD_INC4_MASK8:
+		return sizeof(sb_rcd_inc4_mask8_packed_t);
+
+  case SB_RCD_INC4_MASK16:
+		return sizeof(sb_rcd_inc4_mask16_packed_t);
+
+  case SB_RCD_INC4_MASK32:
+		return sizeof(sb_rcd_inc4_mask32_packed_t);
+
+  case SB_RCD_INC4_MASK64:
+		return sizeof(sb_rcd_inc4_mask64_packed_t);
+
+	case SB_RCD_INC12:
+		return sizeof(sb_rcd_inc12_packed_t);
+
+	case SB_RCD_INC12_MASK8:
+		return sizeof(sb_rcd_inc12_mask8_packed_t);
+
+	case SB_RCD_INC12_MASK16:
+		return sizeof(sb_rcd_inc12_mask16_packed_t);
+
+  case SB_RCD_END:
+		return sizeof(sb_rcd_end_packed_t);
+
+  case SB_RCD_SETNUM8:
+		return sizeof(sb_rcd_setnum8_packed_t);
+
+  case SB_RCD_SETNUM64:
+		return sizeof(sb_rcd_setnum64_packed_t);
+
+  case SB_RCD_INC64:
+		return sizeof(sb_rcd_inc64_packed_t);
+
+  case SB_RCD_INC7_SET1:
+		return sizeof(sb_rcd_inc7_set1_packed_t);
+	}
+
+	assert(false); // Unknown record type
+}
+
+
+
+

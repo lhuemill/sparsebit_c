@@ -1,4 +1,4 @@
-/* Copyright 2020 Louis Huemiller Jr.
+/* Copyright 2026 Louis Huemiller Jr.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -125,9 +125,16 @@ static sb_idx_t expected_firstcleared(void);
 static sb_idx_t expected_nextcleared(sb_idx_t start_idx);
 static sb_idx_t expected_prevcleared(sb_idx_t start_idx);
 static sb_idx_t expected_nthset_rv(sb_idx_t nth_idx);
+static void cleanup(void);
+
+char tempfile_path[] = "/tmp/sbit_XXXXXX";
+int tempfile_fd = -1;
 
 int main(int argc, char *argv[])
 {
+	int rv;
+	FILE *tempfile;
+
 	// Command-line Parsing
 	long pass_start = DEFAULT_PASS_START;
 	long pass_end = DEFAULT_PASS_END;
@@ -179,6 +186,20 @@ int main(int argc, char *argv[])
 	if (pass_end < pass_start) {
 		fputs("Pass_start must be before pass_end\n", stderr);
 		exit(24);
+	}
+
+	// Create temp file.
+	tempfile_fd = mkstemp(tempfile_path);
+	if (tempfile_fd < 0) {
+		fprintf(stderr, "Error creating temp file %s, tempfile_fd: %i errno: %i\n",
+			tempfile_path, tempfile_fd, errno);
+		return(30);
+	}
+	rv = atexit(cleanup);
+	if (rv != 0) {
+		fprintf(stderr, "Error registering atexit function, rv: %i errno: %i\n",
+			rv, errno);
+		return(31);
 	}
 
 	long pass, passed_last_displayed = pass_start - 1;
@@ -666,7 +687,97 @@ int main(int argc, char *argv[])
 			}
 		}
 
+		// Validate sb_save() and sb_load().
+		rv = ftruncate(tempfile_fd, 0);
+		if (rv != 0) {
+			display_passed_passes(&passed_last_displayed, pass - 1);
+			fprintf(stderr, "Failed to truncate temp file %s, rv: %i errno: %i\n",
+				tempfile_path, rv, errno);
+			exit(31);
+		}
+		off_t offset = lseek(tempfile_fd, 0, SEEK_SET);
+		if (offset != 0) {
+			display_passed_passes(&passed_last_displayed, pass - 1);
+			fprintf(stderr,
+				"Seek before sb_save to start of tempfile failed %s, "
+				"offset: %lli errno: %i\n",
+				tempfile_path, offset, errno);
+			exit(32);
+		}
+		tempfile = fopen(tempfile_path, "wb");
+		if (tempfile == NULL) {
+			fprintf(stderr, "Failed to open for write: %s, errno: %i\n",
+				tempfile_path, errno);
+			exit(33);
+		}
+		rv = sb_save(tempfile, sb);
+		if (rv != 0) {
+			display_passed_passes(&passed_last_displayed, pass - 1);
+			fprintf(stderr, "failed sb_save to temp file %s, rv: %i errno: %i\n",
+				tempfile_path, rv, errno);
+			exit(33);
+		}
+		
+		offset = lseek(tempfile_fd, 0, SEEK_SET);
+		if (offset != 0) {
+			display_passed_passes(&passed_last_displayed, pass - 1);
+			fprintf(stderr,
+				"Seek before sb_load to start of tempfile failed %s, "
+				"offset: %lli errno: %i\n",
+				tempfile_path, offset, errno);
+			exit(34);
+		}
+		sb_t *sb2 = sb_create();
+		if (sb2 == NULL) {
+			display_passed_passes(&passed_last_displayed, pass - 1);
+			fprintf(stderr, "Pass %li: sb_create() failed\n", pass);
+			exit(35);
+		}
+		rv = fclose(tempfile);
+		if (rv != 0) {
+			fputs("Failed to close tempfile before reopen for read\n", stderr);
+			exit(37);
+		}
+		tempfile = fopen(tempfile_path, "rb");
+		if (tempfile == NULL) {
+			fprintf(stderr, "Failed to open for read: %s, errno: %i\n",
+				tempfile_path, errno);
+			exit(33);
+		}
+		rv = sb_load(tempfile, sb2);
+		if (rv != 0) {
+			display_passed_passes(&passed_last_displayed, pass - 1);
+			fprintf(stderr,
+				"Failed sb_load from temp file %s, rv: %i errno: %i\n",
+				tempfile_path, offset, errno);
+			exit(36);
+		}
+		rv = fclose(tempfile);
+		if (rv != 0) {
+			fputs("Failed to close tempfile\n", stderr);
+			exit(37);
+		}
+		expected_idx = expected_firstset();
+		actual_firstset = sb_firstset(sb2);
+		if (actual_firstset != expected_idx) {
+			exit(37);
+		}
+		sb_idx_t prev_idx = expected_idx;
+		do {
+			expected_idx = expected_nextset(prev_idx);
+			sb_idx_t actual_nextset = sb_nextset(sb2, prev_idx);
+			if (actual_nextset != expected_idx) {
+				display_passed_passes(&passed_last_displayed, pass - 1);
+				fprintf(stderr,
+					"Failed unexpected nextset, : actual %llx expected %llx\n",
+					actual_nextset, expected_nextset);
+				exit(38);
+			}
+			prev_idx = expected_idx;
+		} while (expected_idx != 0);
+
 		sb_delete(sb);
+		sb_delete(sb2);
 
 		// Every stride worth of passes, display which passes have passed.
 		if ((pass != 0) && (pass % PASSED_DISPLAY_STRIDE) == 0) {
@@ -1012,4 +1123,27 @@ static sb_idx_t expected_nthset_rv(sb_idx_t nth_idx)
 
 
 	return 0;
+}
+
+static void cleanup(void)
+{
+	int rv;
+
+	if (tempfile_fd >= 0) {
+		rv = close(tempfile_fd);
+		if (rv != 0) {
+			fprintf(stderr, "Error closing tempfile fd %i, rv: %i errno: %i\n",
+				tempfile_fd, rv, errno);
+			return;
+		}
+
+		rv = unlink(tempfile_path);
+		if (rv != 0) {
+			fprintf(stderr, "Error unlinking tempfile %s, rv: %i errno: %i\n",
+				tempfile_path, rv, errno);
+			return;
+		}
+	}
+
+	return;
 }

@@ -1,4 +1,4 @@
-/* Copyright 2020 Louis Huemiller Jr.
+/* Copyright 2026 Louis Huemiller Jr.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
 #include <sys/types.h>
 #include <CUnit/Basic.h>
 
@@ -30,6 +32,12 @@
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define NUM(a) (sizeof(a)/sizeof((a)[0]))
 #define MEMCLEAR(p, n) memset((p), 0, (n))
+
+static int suite_init(void);
+static int suite_cleanup(void);
+
+char tempfile_path[] = "/tmp/sbit_XXXXXX";
+int tempfile_fd;
 
 void test_create_delete(void)
 {
@@ -1265,6 +1273,84 @@ void test_combinations4(void)
 	} while (true);
 }
 
+void test_store_load(void)
+{
+	int rv;
+	sb_idx_t highest_idx = 0;
+	FILE *tempfile;
+
+	sb_idx_t indexes[] = {
+		0x64,
+		0x65,
+		0x78,
+		0x80,
+		0x81,
+		0x82,
+		0x108,
+		0x10d,
+		0x13f
+	};
+
+	sb_t *sb1 = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb1, NULL);
+
+	tempfile = fopen(tempfile_path, "wb");
+	if (tempfile == NULL) {
+		fprintf(stderr, "Error createing tempfile stream from tempfile file" 
+			"descriptor for %s, tempfile_fd: %i errno: $i\n",
+			tempfile_path, tempfile_fd, errno);
+		CU_ASSERT_FATAL(false);
+	}
+
+	// Set bits
+	for (int n1 = 0; n1 < NUM(indexes); n1++) {
+		sb_idx_t idx = indexes[n1];
+		if (idx > highest_idx) { highest_idx = idx; }
+		rv = sb_set(sb1, idx);
+		CU_ASSERT_EQUAL_FATAL(rv, 0);
+	}
+
+	// Save sb1 to temp file.
+	rv = sb_save(tempfile, sb1);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+	rv = fclose(tempfile);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+	// Load bit settings back into a new sparsebit array.
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+	tempfile = fopen(tempfile_path, "rb");
+	if (tempfile == NULL) {
+		fprintf(stderr, "reopen of tempfile stream failed, errno: %i\n", errno);
+		CU_ASSERT_FATAL(false);
+	}
+	sb_t *sb2 = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb2, NULL);
+	rv = sb_load(tempfile, sb2);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+	rv = fclose(tempfile);
+	CU_ASSERT_EQUAL_FATAL(rv, 0);
+
+	// Validate bit settings within sb2.
+	for (int idx = 0; idx < highest_idx + 4; idx++) {
+		bool expect_set = false;
+		for (int n1 = 0; n1 < NUM(indexes); n1++) {
+			if (idx == indexes[n1]) {
+				expect_set = true;
+				break;
+			}
+		}
+
+		bool bit = sb_isset(sb2, idx);
+		if (bit != expect_set) {
+			fprintf(stderr,
+				"Unexpected bit setting idx: %llx bit: %i expect_set: %i\n",
+				idx, bit, expect_set);
+			fputs(sb_dump(sb2), stderr);
+			CU_FAIL_FATAL("Unexpected bit setting");
+		}
+	}
+}
+
 int main(void)
 {
 	bool any_failed;
@@ -1277,7 +1363,7 @@ int main(void)
 	}
 
 	/* Add Test Suite */
-	pSuite = CU_add_suite("Suite_1", NULL, NULL);
+	pSuite = CU_add_suite("Suite_1", suite_init, suite_cleanup);
 	if (pSuite == NULL) {
 		CU_cleanup_registry();
 		return CU_get_error();
@@ -1287,7 +1373,12 @@ int main(void)
 	// TODO: Optionally use positional command-line arguments, that are
 	//       regular expressions, to specify which tests are to be added.
 
-	if ((CU_add_test(pSuite, "create_delete", test_create_delete) == NULL)
+	if (0
+
+		|| (CU_add_test(pSuite, "clear_two_nodes", test_clear_two_nodes) == NULL)
+
+
+		|| (CU_add_test(pSuite, "create_delete", test_create_delete) == NULL)
 		|| (CU_add_test(pSuite, "set", test_set) == NULL)
 		|| (CU_add_test(pSuite, "clear", test_clear) == NULL)
 		|| (CU_add_test(pSuite, "multinode", test_multinode) == NULL)
@@ -1302,7 +1393,6 @@ int main(void)
 				== NULL)
 		|| (CU_add_test(pSuite, "nthset_with_allset", test_nthset_with_allset)
 				== NULL)
-		|| (CU_add_test(pSuite, "permutations6", test_permutations6) == NULL)
 		|| (CU_add_test(pSuite, "set_after_single", test_set_after_single) == NULL)
 		|| (CU_add_test(pSuite, "set_after_clear_single",
 			test_set_after_clear_single) == NULL)
@@ -1310,6 +1400,8 @@ int main(void)
 			test_set_after_then_clear_mask) == NULL)
 		|| (CU_add_test(pSuite, "adjacent_clear_across_mask",
 			test_adjacent_clear_across_mask) == NULL)
+		|| (CU_add_test(pSuite, "store_load", test_store_load) == NULL)
+		|| (CU_add_test(pSuite, "permutations6", test_permutations6) == NULL)
 		|| (CU_add_test(pSuite, "combinations4", test_combinations4) == NULL)
 		) {
 		CU_cleanup_registry();
@@ -1329,4 +1421,38 @@ int main(void)
 	}
 
 	return (any_failed) ? 1 : 0;
+}
+
+int suite_init(void)
+{
+	// Create temp file.
+	tempfile_fd = mkstemp(tempfile_path);
+	if (tempfile_fd < 0) {
+		fprintf(stderr, "Error creating temp file %s, tempfile_fd: %i errno: %i\n",
+			tempfile_path, tempfile_fd, errno);
+		return (30);
+	}
+
+	return 0;
+}
+
+int suite_cleanup(void)
+{
+	int rv;
+
+	rv = close(tempfile_fd);
+	if (rv != 0) {
+		fprintf(stderr, "Error closing tempfile fd %i, rv: %i errno: %i\n",
+			tempfile_fd, rv, errno);
+		return (41);
+	}
+
+	rv = unlink(tempfile_path);
+	if (rv != 0) {
+		fprintf(stderr, "Error unlinking tempfile %s, rv: %i errno: %i\n",
+			tempfile_path, rv, errno);
+		return (41);
+	}
+
+	return 0;
 }
