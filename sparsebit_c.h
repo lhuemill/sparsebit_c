@@ -1,4 +1,4 @@
-/* Copyright 2020 Louis Huemiller Jr.
+/* Copyright 2026 Louis Huemiller Jr.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,6 +12,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#ifndef _SPARSEBIT_C_H_
+#define _SPARSEBIT_C_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <inttypes.h>
 #include <stdbool.h>
@@ -70,4 +77,10 @@ sb_pdynstr_t sb_dyn_sprintf(const char *format, ...);
 void sb_dynstr_free(sb_pdynstr_t pdynstr);
 sb_pdynstr_t sb_validate(const sb_t* sb);
 sb_pdynstr_t sb_dump(const sb_t* sb);
+#endif /* SB_TEST */
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* _SPARSEBIT_C_H_ */
