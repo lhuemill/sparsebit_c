@@ -51,11 +51,15 @@ struct node {
 	sb_idx_t idx_start;  // Index of first bit in mask.
 	mask_t mask;
 	sb_num_t set_after;  // Number of contiguously set bits, after last mask bit.
+
+#ifdef SBIT_SUBTREENUM
 	sb_num_t num_set_subtree;  // Number of bits set in this node plus all of
 	                           // its children, even children of children.
 	                           // Note: Nodes always have at least 1 set bit,
 	                           // so a num_set_subtree value of 0, actually
 	                           // represents SB_NUM_MAX + 1 set bits.
+#endif
+
 	enum node_color color;
 	node_t *parent;
 	node_t *left;
@@ -221,10 +225,17 @@ int sb_set(sb_t* sb, sb_idx_t idx)
 	}
 
 	mask_t mask = MASK_BIT_MASK(idx - node->idx_start);
+#ifndef SBIT_SUBTREENUM
 	if ((node->mask & mask) == 0) {
 		node->mask |= mask;
 		num_set_adjust(node, 1, true);
 	}
+#else
+	if ((node->mask & mask) == 0) {
+		node->mask |= mask;
+		num_set_adjust(node, 1, true);
+	}
+#endif
 
 	node_adjacent_fixup(sb, idx, idx);
 
@@ -237,7 +248,7 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 		return 0;
 	}
 
-	// Does range extended beyond the maximum index?
+	// Does range extend beyond the maximum index?
 	if ((idx_start + num - 1) < idx_start) {
 		errno = EINVAL;
 		return -1;
@@ -356,6 +367,7 @@ bool sb_anyset(const sb_t* sb)
 
 bool sb_allset(const sb_t* sb)
 {
+#ifdef SBIT_SUBTREENUM
 	if (sb->root && (sb->root->num_set_subtree == 0)) {
 		assert(sb->root->idx_start == 0);
 		assert(sb->root->mask == ~((mask_t) 0));
@@ -364,13 +376,19 @@ bool sb_allset(const sb_t* sb)
 		assert(sb->root->right == NULL);
 		return true;
 	}
+#else
+	// Note: Due to overflow, SB_IDX_MAX + 1 == 0.
+	if (sb->root && (num_set_subtree(sb->root) == (SB_IDX_MAX + 1))) {
+		return true;
+	}
+#endif
 
 	return false;
 }
 
 sb_num_t sb_numset(const sb_t* sb)
 {
-	return (sb->root != NULL) ? sb->root->num_set_subtree : 0;
+	return (sb->root != NULL) ? num_set_subtree(sb->root) : 0;
 }
 
 bool sb_isset(const sb_t* sb, sb_idx_t idx)
@@ -414,13 +432,13 @@ sb_idx_t sb_lastset(const sb_t* sb)
 		node_t *node = node_maximum(sb->root);
 		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
 			if (node->mask & MASK_BIT_MASK(n)) {
-			return node->idx_start + n;
+				return node->idx_start + n;
+			}
+			assert(0);  // Node with no mask bits set.
 		}
-		assert(0);  // Node with no mask bits set.
 	}
-}
 
-return 0;
+	return 0;
 }
 
 sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
@@ -549,17 +567,17 @@ sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth)
 	assert(node != NULL);
 	sb_num_t num = nth;
 	do {
-		sb_num_t low = (node->left) ? node->left->num_set_subtree
-			: (node->num_set_subtree
-				- ((node->right) ? node->right->num_set_subtree : 0)
+		sb_num_t low = (node->left) ? num_set_subtree(node->left)
+			: (num_set_subtree(node)
+				- ((node->right) ? num_set_subtree(node->right) : 0)
 				- num_set_node(node));
-		sb_num_t high = node->num_set_subtree
-				- ((node->right) ? node->right->num_set_subtree : 0) - 1;
+		sb_num_t high = num_set_subtree(node)
+				- ((node->right) ? num_set_subtree(node->right) : 0) - 1;
 		if (num < low) {
 			assert(node->left != NULL);
 			node = node->left;
 		} else if (num > high) {
-			sb_num_t amt = node->num_set_subtree - node->right->num_set_subtree;
+			sb_num_t amt = num_set_subtree(node) - num_set_subtree(node->right);
 			assert(num >= amt);
 			num -= amt;
 			assert(node->right != NULL);
@@ -1383,12 +1401,14 @@ static void node_rotate_left(sb_t *sb, node_t *x)
 	y->left = x;
 	x->parent = y;
 
+#ifdef SBIT_SUBTREENUM
 	x->num_set_subtree = num_set_node(x);
 	x->num_set_subtree += (x->left) ? x->left->num_set_subtree : 0;
 	x->num_set_subtree += (x->right) ? x->right->num_set_subtree : 0;
 	y->num_set_subtree = num_set_node(y);
 	y->num_set_subtree += (y->left) ? y->left->num_set_subtree : 0;
 	y->num_set_subtree += (y->right) ? y->right->num_set_subtree : 0;
+#endif
 }
 
 //              |                               |             
@@ -1421,22 +1441,22 @@ static void node_rotate_right(sb_t *sb, node_t *y)
 	x->right = y;
 	y->parent = x;
 
+#ifdef SBIT_SUBTREENUM
 	y->num_set_subtree = num_set_node(y);
 	y->num_set_subtree += (y->left) ? y->left->num_set_subtree : 0;
 	y->num_set_subtree += (y->right) ? y->right->num_set_subtree : 0;
 	x->num_set_subtree = num_set_node(x);
 	x->num_set_subtree += (x->left) ? x->left->num_set_subtree : 0;
 	x->num_set_subtree += (x->right) ? x->right->num_set_subtree : 0;
+#endif
 }
 
 static void node_transplant(sb_t *sb, node_t *u, node_t *v)
 {
-	if (v && v->num_set_subtree) {
-		num_set_adjust(v, v->num_set_subtree, false);
-	}
-	if (u->num_set_subtree) {
-		num_set_adjust(u, u->num_set_subtree, false);
-	}
+#ifdef SBIT_SUBTREENUM
+	if (v) { num_set_adjust(v, v->num_set_subtree, false); }
+	if (u) { num_set_adjust(u, u->num_set_subtree, false); }
+#endif
 
 	if (u->parent == NULL) {
 		sb->root = v;
@@ -1448,10 +1468,11 @@ static void node_transplant(sb_t *sb, node_t *u, node_t *v)
 	if (v != NULL) {
 		v->parent = u->parent;
 
+#ifdef SBIT_SUBTREENUM
 		num_set_adjust(v, num_set_node(v)
 			+ ((v->left) ? v->left->num_set_subtree : 0)
-			+ ((v->right) ? v->right->num_set_subtree : 0),
-			true);
+			+ ((v->right) ? v->right->num_set_subtree : 0), true);
+#endif
 	}
 
 	return;
@@ -1573,13 +1594,17 @@ static void node_delete(sb_t *sb, node_t *node)
 		}
 		node_transplant(sb, node, y);
 
+#ifdef SBIT_SUBTREENUM
 		if (y->left) {
 			num_set_adjust(y->left, y->left->num_set_subtree, false);
 		}
+#endif
 		y->left = node->left;
 		y->left->parent = y;
 		y->color = node->color;
+#ifdef SBIT_SUBTREENUM
 		num_set_adjust(y, y->left->num_set_subtree, true);
+#endif
 	}
 
 	if (y_orig_color == BLACK) {
@@ -1815,6 +1840,7 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 				}
 			}
 
+#ifdef SBIT_SUBTREENUM
 			// Validate nodes subtree num set value is equal to the number of
 			// bits set in this node plus all its children.
 			sb_num_t expected_subtree_num = num_set_node(node);
@@ -1836,6 +1862,7 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 					num_set_mask(node->mask), node->num_set_subtree,
 					expected_subtree_num);
 			}
+#endif
 
 			prev = node;
 		}
@@ -2092,9 +2119,11 @@ static sb_num_t num_set_node(const node_t *node)
 
 static sb_num_t num_set_subtree(const node_t *node)
 {
-	sb_num_t sum = 0;
+#ifdef SBIT_SUBTREENUM
+	return node->num_set_subtree;
+#endif
 
-	sum += num_set_node(node);
+	sb_num_t sum = num_set_node(node);
 	sum += (node->left) ? num_set_subtree(node->left) : 0;
 	sum += (node->right) ? num_set_subtree(node->right) : 0;
 
@@ -2103,6 +2132,7 @@ static sb_num_t num_set_subtree(const node_t *node)
 
 static void num_set_adjust(node_t *node, sb_num_t amt, bool positive)
 {
+#ifdef SBIT_SUBTREENUM
 	if (amt == 0) { return; }
 
 	for (; node != NULL; node = node->parent) {
@@ -2116,6 +2146,7 @@ static void num_set_adjust(node_t *node, sb_num_t amt, bool positive)
 			node->num_set_subtree -= amt;
 		}
 	}
+#endif
 }
 
 static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
@@ -2123,6 +2154,15 @@ static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
 {
 	sb_pdynstr_t rv_str;
 
+#ifndef SBIT_SUBTREENUM
+	sb_pdynstr_t node_str = sb_dyn_sprintf(
+		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#018" NODE_PRI_MASK
+		" set_after: %#" SB_PRI_NUM "\n"
+		"%*scolor: %s depth: %u parent: %p left: %p right: %p\n",
+		indent, "", node, node->idx_start, node->mask, node->set_after,
+		indent + 2, "", (node->color == RED) ? "RED  " : "BLACK",
+		node_depth(node), node->parent, node->left, node->right);
+#else
 	sb_pdynstr_t node_str = sb_dyn_sprintf(
 		"%*snode: %p idx_start: %#" SB_PRI_IDX " mask: %#018" NODE_PRI_MASK
 		" set_after: %#" SB_PRI_NUM "\n"
@@ -2132,6 +2172,8 @@ static sb_pdynstr_t dump_subtree(const sb_t *sb, const node_t *node,
 		indent + 2, "", (node->color == RED) ? "RED  " : "BLACK",
 		node_depth(node), node->parent, node->left, node->right,
 		indent + 2, "", node->num_set_subtree);
+#endif
+
 	sb_pdynstr_t left_str = NULL, right_str = NULL;
 	if (node->left) {
 		left_str = dump_subtree(sb, node->left, indent + 2);
