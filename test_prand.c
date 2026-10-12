@@ -701,7 +701,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr,
 				"Seek before sb_save to start of tempfile failed %s, "
 				"offset: %lli errno: %i\n",
-				tempfile_path, offset, errno);
+				tempfile_path, (long long int) offset, errno);
 			exit(32);
 		}
 		tempfile = fopen(tempfile_path, "wb");
@@ -724,7 +724,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr,
 				"Seek before sb_load to start of tempfile failed %s, "
 				"offset: %lli errno: %i\n",
-				tempfile_path, offset, errno);
+				tempfile_path, (long long int) offset, errno);
 			exit(34);
 		}
 		sb_t *sb2 = sb_create();
@@ -749,7 +749,7 @@ int main(int argc, char *argv[])
 			display_passed_passes(&passed_last_displayed, pass - 1);
 			fprintf(stderr,
 				"Failed sb_load from temp file %s, rv: %i errno: %i\n",
-				tempfile_path, offset, errno);
+				tempfile_path, rv, errno);
 			exit(36);
 		}
 		rv = fclose(tempfile);
@@ -770,7 +770,8 @@ int main(int argc, char *argv[])
 				display_passed_passes(&passed_last_displayed, pass - 1);
 				fprintf(stderr,
 					"Failed unexpected nextset, : actual %llx expected %llx\n",
-					actual_nextset, expected_nextset);
+					(unsigned long long) actual_nextset,
+					(unsigned long long) expected_idx);
 				exit(38);
 			}
 			prev_idx = expected_idx;

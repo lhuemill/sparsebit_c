@@ -2902,7 +2902,3 @@ static size_t record_packed_size(sb_rcd_id_t id)
 
 	assert(false); // Unknown record type
 }
-
-
-
-

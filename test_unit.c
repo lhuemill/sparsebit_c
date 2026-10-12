@@ -1297,7 +1297,7 @@ void test_store_load(void)
 	tempfile = fopen(tempfile_path, "wb");
 	if (tempfile == NULL) {
 		fprintf(stderr, "Error createing tempfile stream from tempfile file" 
-			"descriptor for %s, tempfile_fd: %i errno: $i\n",
+			"descriptor for %s, tempfile_fd: %i errno: %i\n",
 			tempfile_path, tempfile_fd, errno);
 		CU_ASSERT_FATAL(false);
 	}
@@ -1331,7 +1331,7 @@ void test_store_load(void)
 	CU_ASSERT_EQUAL_FATAL(rv, 0);
 
 	// Validate bit settings within sb2.
-	for (int idx = 0; idx < highest_idx + 4; idx++) {
+	for (sb_idx_t idx = 0; idx < highest_idx + 4; idx++) {
 		bool expect_set = false;
 		for (int n1 = 0; n1 < NUM(indexes); n1++) {
 			if (idx == indexes[n1]) {
@@ -1344,7 +1344,7 @@ void test_store_load(void)
 		if (bit != expect_set) {
 			fprintf(stderr,
 				"Unexpected bit setting idx: %llx bit: %i expect_set: %i\n",
-				idx, bit, expect_set);
+				(unsigned long long) idx, bit, expect_set);
 			fputs(sb_dump(sb2), stderr);
 			CU_FAIL_FATAL("Unexpected bit setting");
 		}
