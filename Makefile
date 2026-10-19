@@ -15,6 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+CC = gcc
+CFLAGS = -O3 -std=c99
+
 all: libs tests tests_subtreenum util
 
 .PHONY: clean
@@ -51,33 +54,33 @@ libs: ./build/ ./target/lib/ ./target/lib/libsparsebit_c.a ./target/lib/libspars
 	touch ./target/lib/libsparsebit_c_subtreenum.a
 
 ./build/sparsebit_c.o: ./build/ ./sparsebit_c.c ./sparsebit_c.h
-	gcc -c -O3 -std=c99 -o ./build/sparsebit_c.o sparsebit_c.c
+	$(CC) -c $(CFLAGS) -o ./build/sparsebit_c.o sparsebit_c.c
 
 ./build/sparsebit_c_subtreenum.o: ./build/ ./sparsebit_c.c ./sparsebit_c.h
-	gcc -c -O3 -std=c99 -D SBIT_SUBTREENUM -o ./build/sparsebit_c_subtreenum.o sparsebit_c.c
+	$(CC) -c $(CGLAGS) -D SBIT_SUBTREENUM -o ./build/sparsebit_c_subtreenum.o sparsebit_c.c
 
 .PHONY: tests
 tests: ./target/ ./target/test_unit ./target/test_adjacent ./target/test_prand
 ./target/test_unit: ./test_unit.c ./target/lib/libsparsebit_c.a
-	gcc -O3 -std=c99 -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_unit ./test_unit.c -L ./target/lib/ -l sparsebit_c -l cunit
+	$(CC) $(CGLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_unit ./test_unit.c -L ./target/lib/ -l sparsebit_c -l cunit
 ./target/test_adjacent: ./test_adjacent.c ./target/lib/libsparsebit_c.a
-	gcc -O3 -std=c99 -D SB_TEST -o ./target/test_adjacent ./test_adjacent.c -L ./target/lib/ -l sparsebit_c -l cunit
+	$(CC) $(CGLAGS) -D SB_TEST -o ./target/test_adjacent ./test_adjacent.c -L ./target/lib/ -l sparsebit_c -l cunit
 ./target/test_prand: ./test_prand.c ./target/lib/libsparsebit_c.a
-	gcc -O3 -std=c99 -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_prand ./test_prand.c -L ./target/lib/ -l sparsebit_c -l cunit
+	$(CC) $(CGLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_prand ./test_prand.c -L ./target/lib/ -l sparsebit_c -l cunit
 
 .PHONY: tests_subtreenum
 tests_subtreenum: ./target/ ./target/test_unit_subtreenum ./target/test_adjacent_subtreenum ./target/test_prand_subtreenum
 ./target/test_unit_subtreenum: ./test_unit.c ./target/lib/libsparsebit_c_subtreenum.a
-	gcc -O3 -std=c99 -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_unit_subtreenum ./test_unit.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
+	$(CC) $(CGLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_unit_subtreenum ./test_unit.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
 ./target/test_adjacent_subtreenum: ./test_adjacent.c ./target/lib/libsparsebit_c.a
-	gcc -O3 -std=c99 -D SB_TEST -o ./target/test_adjacent_subtreenum ./test_adjacent.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
+	$(CC) $(CGLAGS) -D SB_TEST -o ./target/test_adjacent_subtreenum ./test_adjacent.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
 ./target/test_prand_subtreenum: ./test_prand.c ./target/lib/libsparsebit_c.a
-	gcc -O3 -std=c99 -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_prand_subtreenum ./test_prand.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
+	$(CC) $(CGLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_prand_subtreenum ./test_prand.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
 
 .PHONY: util
 util: ./target/ ./target/util/ ./target/util/op_sieve
 ./target/util/op_sieve: ./op_sieve.c ./target/lib/libsparsebit_c.a
-	gcc -O3 -g -std=c99 -D SB_TEST -o ./target/util/op_sieve ./op_sieve.c -L ./target/lib/ -l sparsebit_c
+	$(CC) $(CGLAGS) -D SB_TEST -o ./target/util/op_sieve ./op_sieve.c -L ./target/lib/ -l sparsebit_c
 
 .PHONY: smoketest
 smoketest: tests
