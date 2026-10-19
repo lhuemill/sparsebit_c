@@ -204,8 +204,6 @@ int main(int argc, char *argv[])
 
 	long pass, passed_last_displayed = pass_start - 1;
 	for (pass = pass_start; pass <= pass_end; pass++) {
-		unsigned int num_ops;
-
 		// Per-pass initilization
 		srand(pass);
 		MEMCLEAR(&test_ranges, sizeof(test_ranges));
@@ -300,7 +298,6 @@ int main(int argc, char *argv[])
 			sb_idx_t actual_idx_rv;
 			sb_num_t actual_num;
 			error_t errno_orig;
-			error_t expected_errno;
 			error_t actual_errno;
 			
 			sb_idx_t idx = test_ranges[p_op->range_idx].start_idx + p_op->offset;

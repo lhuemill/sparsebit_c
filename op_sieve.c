@@ -186,7 +186,6 @@ int main(void)
 		}
 
 		// Determine Nth index if specified on line.
-		sb_idx_t nth_idx = 0;
 		chptr = strstr(line, PREFIX_NTH_IDX);
 		if (chptr != NULL) {
 			if (strncmp(chptr + sizeof(PREFIX_NTH_IDX) - 1, PREFIX_HEX,
@@ -616,6 +615,9 @@ static bool ops_expected_isset(sb_idx_t idx)
 			if ((idx >= opptr->idx) && (idx <= (opptr->idx + opptr->num - 1))) {
 				isset = false;
 			}
+			break;
+
+		default:
 			break;
 		}
 	}

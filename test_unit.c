@@ -390,7 +390,6 @@ void test_first_next_cleared(void)
 void test_prev_set(void)
 {
 	int rv;
-	sb_idx_t idx;
 
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
@@ -432,7 +431,6 @@ void test_prev_set(void)
 void test_prev_cleared(void)
 {
 	int rv;
-	sb_idx_t idx;
 
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
@@ -488,7 +486,6 @@ void test_prev_cleared(void)
 void test_nthset(void)
 {
 	int rv;
-	sb_idx_t idx;
 
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
@@ -545,9 +542,6 @@ void test_nthset(void)
 
 void test_nthset_with_noneset(void)
 {
-	int rv;
-	sb_idx_t idx;
-
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
 
@@ -585,7 +579,6 @@ void test_nthset_with_noneset(void)
 void test_nthset_with_allset(void)
 {
 	int rv;
-	sb_idx_t idx;
 
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);

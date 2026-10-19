@@ -86,7 +86,6 @@ static bool node_prev_adj(node_t *node);
 static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at);
 static void node_merge(sb_t *sb, node_t *prev, node_t *next);
 static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end);
-static bool node_any_set(const node_t *node);
 static bool mask_any_set(mask_t mask);
 static bool mask_only_leading(mask_t mask);
 
@@ -98,7 +97,6 @@ static void num_set_adjust(node_t *node, sb_num_t amt, bool positive);
 static bool node_is_bud(node_t *node);
 static unsigned int node_depth(const node_t *node);
 static unsigned int node_depth_black(const node_t *node);
-static node_t *node_sibling(node_t *node);
 static node_t *node_grandparent(node_t *node);
 static node_t *node_uncle(node_t *node);
 static node_t *node_minimum(node_t *node);
@@ -106,7 +104,6 @@ static node_t *node_maximum(node_t *node);
 static node_t *node_next(node_t *node);
 static node_t *node_prev(node_t *node);
 static const node_t *node_minimum_const(const node_t *nodep_const);
-static const node_t *node_maximum_const(const node_t *nodep_const);
 static const node_t *node_next_const(const node_t *nodep_const);
 static const node_t *node_prev_const(const node_t *nodep_const);
 static void node_rotate_left(sb_t *sb, node_t *x);
@@ -300,7 +297,6 @@ int sb_setnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 	// TODO: Don't split if end can be handled by just increasing
 	//       the current node_end->set_after value.
 	if (node_end->idx_start != MASK_BOUNDARY(idx_end)) {
-		node_t *tmp = node_end;
 		node_end = node_split(sb, node_end, MASK_BOUNDARY(idx_end));
 		if (node_end == NULL) {
 			node_adjacent_fixup(sb, idx_start, idx_start + num - 1);
@@ -1285,16 +1281,6 @@ static unsigned int node_depth_black(const node_t *node)
 	return depth_black;
 }
 
-static node_t *node_sibling(node_t *node)
-{
-	if (node->parent) {
-		return (node == node->parent->left)
-			? node->parent->right : node->parent->left;
-	}
-
-	return NULL;
-}
-
 static node_t *node_grandparent(node_t *node)
 {
 	if (node->parent && node->parent->parent) {
@@ -1370,11 +1356,6 @@ static const node_t *node_minimum_const(const node_t *nodep_const)
 	return (const node_t *) node_minimum((node_t *) nodep_const);
 }
 
-static const node_t *node_maximum_const(const node_t *nodep_const)
-{
-	return (const node_t *) node_maximum((node_t *) nodep_const);
-}
-
 static const node_t *node_next_const(const node_t *nodep_const)
 {
 	return (const node_t *) node_next((node_t *) nodep_const);
@@ -1385,18 +1366,18 @@ static const node_t *node_prev_const(const node_t *nodep_const)
 	return (const node_t *) node_prev((node_t *) nodep_const);
 }
 
-
-//              |                               |             
-//            +---+                           +---+               
-//            | y |                           | x |               
-//            +---+                           +---+               
-//           /     \                         /     \        
-//      +---+       c  <-- rotate_left(x)   a       +---+   
-//      | x |                                       | y |   
-//      +---+                                       +---+   
-//     /     \                                     /     \  
-//    a       b                                   b       c 
-//                                                          
+/*
+ *              |                               |             
+ *            +---+                           +---+               
+ *            | y |                           | x |               
+ *            +---+                           +---+               
+ *           /     \                         /     \        
+ *      +---+       c  <-- rotate_left(x)   a       +---+   
+ *      | x |                                       | y |   
+ *      +---+                                       +---+   
+ *     /     \                                     /     \  
+ *    a       b                                   b       c 
+ */                                                         
 static void node_rotate_left(sb_t *sb, node_t *x)
 {
 	node_t *y = x->right;
@@ -1426,17 +1407,18 @@ static void node_rotate_left(sb_t *sb, node_t *x)
 #endif
 }
 
-//              |                               |             
-//            +---+                           +---+               
-//            | y |                           | x |               
-//            +---+                           +---+               
-//           /     \                         /     \        
-//      +---+       c  rotate_right(y) -->  a       +---+   
-//      | x |                                       | y |   
-//      +---+                                       +---+   
-//     /     \                                     /     \  
-//    a       b                                   b       c 
-//                                                          
+/*
+ *              |                               |             
+ *            +---+                           +---+               
+ *            | y |                           | x |               
+ *            +---+                           +---+               
+ *           /     \                         /     \        
+ *      +---+       c  rotate_right(y) -->  a       +---+   
+ *      | x |                                       | y |   
+ *      +---+                                       +---+   
+ *     /     \                                     /     \  
+ *    a       b                                   b       c 
+ */                                                          
 static void node_rotate_right(sb_t *sb, node_t *y)
 {
 	node_t *x = y->left;
@@ -1600,7 +1582,6 @@ static void node_delete(sb_t *sb, node_t *node)
 		}
 		x = y->right;
 		if (y->parent == node) {
-			sb_num_t num = num_set_node(x);
 			x->parent = y;
 		} else {
 			node_transplant(sb, y, y->right);
@@ -1948,7 +1929,7 @@ int sb_save(FILE *file, const sb_t *sb)
 		for (node_t *node = node_minimum(sb->root); node != NULL;
 			node = node_next(node)) {
 			rv = node_write(file, node, &idx);
-
+			if (rv != 0) { return rv; }
 		}
 	}
 
@@ -1967,7 +1948,6 @@ int sb_save(FILE *file, const sb_t *sb)
 
 int sb_load(FILE *file, sb_t *sb)
 {
-	int rv;
 	size_t sz;
 
 	char file_id[CONST_STRLEN(SB_ID)];
@@ -1985,7 +1965,7 @@ int sb_load(FILE *file, sb_t *sb)
 	}
 	if (strncmp(file_id, SB_ID, CONST_STRLEN(SB_ID)) != 0) {
 		fprintf(stderr, "Unexpected sparsebit file identifier of: %*s\n",
-			rv, file_id);
+			(int) CONST_STRLEN(SB_ID), file_id);
 		errno = EPROTO;
 		return -1;
 	}
@@ -2052,6 +2032,7 @@ int sb_load(FILE *file, sb_t *sb)
 			for (unsigned int i = 0; i < 8; i++) {
 				if ((1ull << i) & record.inc4_mask8.mask) {
 					rv = sb_set(sb, base_idx + i);
+					if (rv != 0) { return rv; }
 				}
 			}
 			base_idx += 8;
@@ -2304,11 +2285,6 @@ static void node_adjacent_fixup(sb_t *sb, sb_idx_t idx_start, sb_idx_t idx_end)
 	}
 }
 
-static bool node_any_set(const node_t *node)
-{
-	return mask_any_set(node->mask) || node->set_after;
-}
-
 static bool mask_any_set(mask_t mask)
 {
 	if (mask != 0) {
@@ -2431,7 +2407,7 @@ sb_pdynstr_t sb_dyn_sprintf(const char *format, ...)
 	int n;
 	size_t s_allocated;
 	va_list ap;
-	char *s;
+	char *s = NULL;
 
 	// Determine size of string, if the caller doesn't change any of the
 	// argument values, while this call is being performed.
@@ -2441,7 +2417,7 @@ sb_pdynstr_t sb_dyn_sprintf(const char *format, ...)
 
 	// For now, just get a pointer to any allocated memory. Later, the loop
 	// below will reallocate to the anticipated size.
-	s = malloc(0);
+	s = malloc(sizeof(*s));
 	if (s == NULL) {
 		errno = ENOMEM;
 		return NULL;
@@ -2468,17 +2444,14 @@ void sb_dynstr_free(sb_pdynstr_t pdynstr)
 static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx)
 {
 	int rv;
-	size_t sz;
 	union sb_rcd record;
 
 	int mask_first_set_idx = -1;
-	int mask_last_set_idx = -1;
 	for (unsigned int n1 = 0; n1 < sizeof(node->mask) * CHAR_BIT; n1++) {
 		if ((node->mask & (1ull << n1))) {
  			if (mask_first_set_idx < 0) {
 				mask_first_set_idx = n1;
 			}
-			mask_last_set_idx = n1;
 		}
 	}
 
@@ -2496,6 +2469,7 @@ static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx)
 			record.inc64.amt = diff;
 		}
 		rv = record_write(file, &record, base_idx);
+		if (rv != 0) { return rv; }
 	}
 
 	// Write the nodes mask value
@@ -2503,6 +2477,7 @@ static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx)
 	record.inc4_mask64.id = SB_RCD_INC4_MASK64;
 	record.inc4_mask64.mask = node->mask;
 	rv = record_write(file, &record, base_idx);
+	if (rv != 0) { return rv; }
 
 	if (node->set_after) {
 		if (node->set_after <= 0xff) {
@@ -2523,14 +2498,12 @@ static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx)
 static int record_write(FILE *file, const union sb_rcd *record,
 	sb_idx_t *base_idx)
 {
-	int rv;
 	size_t sz;
 
 	union sb_rcd_packed record_packed;
 
 	record_to_record_packed(record, &record_packed);
 
-// rv = write(fd, &record_packed, record_packed_size(record->id));
 	errno = 0;
 	sz = fwrite(&record_packed, record_packed_size(record->id), 1, file);
 	if (sz != 1) {
@@ -2787,8 +2760,8 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 
 	case SB_RCD_INC12_MASK8:
 		record->inc12_mask8.id = SB_RCD_INC12_MASK8;
-		record->inc12_mask8.amt = (record_packed->inc12_mask8.id_amt0 & 0x0f) << 8
-				+ record_packed->inc12_mask8.amt1;
+		record->inc12_mask8.amt = (record_packed->inc12_mask8.id_amt0 & 0x0f)
+			<< (8 + record_packed->inc12_mask8.amt1);
 		record->inc12_mask8.mask = 0;
 		for (unsigned int i1 = 0; i1 < 8; i1++) {
 			if (record_packed->inc12_mask8.mask & (0x80 >> i1)) {
@@ -2800,8 +2773,8 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 	case SB_RCD_INC12_MASK16:
 		record->inc12_mask16.id = SB_RCD_INC12_MASK16;
 		record->inc12_mask16.amt
-			= (record_packed->inc12_mask16.id_amt0 & 0x0f) << 8
-				+ record_packed->inc12_mask16.amt1;
+			= (record_packed->inc12_mask16.id_amt0 & 0x0f)
+				<< ( 8 + record_packed->inc12_mask16.amt1);
 		record->inc12_mask16.mask = 0;
 		for (unsigned int i0 = 0; i0 < 2; i0++) {
 			if (record_packed->inc12_mask16.mask[i0] == 0) { continue; }

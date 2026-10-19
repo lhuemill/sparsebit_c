@@ -479,8 +479,6 @@ int main(int argc, char *argv[])
 // counter values.
 static void nodes_setup(void)
 {
-	uint64_t mask;
-	sb_num_t set_after;
 	// Set mask and set_after values, in each node.
 	for (struct node *nodep = nodes; nodep < (nodes + nodes_num); nodep++) {
 		nodep->mask = mask_typ_attrs[nodep->mask_typ].val;
@@ -508,8 +506,6 @@ static void nodes_setup(void)
 
 static sb_t *node_sb_create(sb_pdynstr_t *p_ops)
 {
-	int rv;
-
 	sb_t *sb = sb_create();
 	if (sb == NULL) {
 		return sb;
