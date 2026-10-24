@@ -63,6 +63,7 @@ enum OP {
 	QUERY_NUMSET,
 	QUERY_ISSET,
 	QUERY_FIRSTSET,
+	QUERY_LASTSET,
 	QUERY_NEXTSET,
 	QUERY_PREVSET,
 	QUERY_ANYCLEARED,
@@ -85,6 +86,7 @@ struct op_str {
 	{QUERY_NUMSET, "QUERY_NUMSET"},
 	{QUERY_ISSET, "QUERY_ISSET"},
 	{QUERY_FIRSTSET, "QUERY_FIRSTSET"},
+	{QUERY_LASTSET, "QUERY_LASTSET"},
 	{QUERY_NEXTSET, "QUERY_NEXTSET"},
 	{QUERY_PREVSET, "QUERY_PREVSET"},
 	{QUERY_ANYCLEARED, "QUERY_ANYCLEARED"},
@@ -115,10 +117,12 @@ static const char *op_string(enum OP op);
 static int range_idx_cmp(const void *elem1, const void *elem2);
 static sb_num_t range_numset(unsigned int range_idx);
 static sb_idx_t range_firstset(unsigned int range_idx);
+static sb_idx_t range_lastset(unsigned int range_idx);
 static bool range_supports_idx(unsigned int range_idx, sb_idx_t idx);
 static bool expected_isset(sb_idx_t idx);
 static sb_num_t expected_numset(void);
 static sb_idx_t expected_firstset(void);
+static sb_idx_t expected_lastset(void);
 static sb_idx_t expected_nextset(sb_idx_t start_idx);
 static sb_idx_t expected_prevset(sb_idx_t start_idx);
 static sb_idx_t expected_firstcleared(void);
@@ -372,6 +376,21 @@ int main(int argc, char *argv[])
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
 					exit(43);
+				}
+				break;
+
+			case QUERY_LASTSET:
+				expected_idx = expected_lastset();
+				actual_idx = sb_lastset(sb);
+				if (expected_idx != actual_idx) {
+					display_passed_passes(&passed_last_displayed, pass - 1);
+					fprintf(stderr, "Pass %li: Validation Error - "
+						"QUERY_LASTSET Unexpected Last Set:\n"
+						"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+						pass, actual_idx, expected_idx);
+					display_operations(stderr);
+					fputs(sb_dump(sb), stderr);
+					exit(58);
 				}
 				break;
 
@@ -893,6 +912,20 @@ static sb_idx_t range_firstset(unsigned int range_idx)
 	            // atleast one set bit.
 }
 
+static sb_idx_t range_lastset(unsigned int range_idx)
+{
+	struct test_range *p_range = &test_ranges[range_idx];
+
+	for (ssize_t n1 = NUM(p_range->expected) - 1; n1 >= 0; n1--) {
+		if (p_range->expected[n1]) {
+			return p_range->start_idx + n1;
+		}
+	}
+
+	assert(0);  // Caller should only call range_lastset, when range has
+	            // atleast one set bit.
+}
+
 static bool range_supports_idx(unsigned int range_idx, sb_idx_t idx)
 {
 	assert(range_idx < NUM(test_ranges));
@@ -938,6 +971,18 @@ static sb_idx_t expected_firstset(void)
 	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		if (range_numset(range_idx)) {
 			return range_firstset(range_idx);
+		}
+	}
+
+	// No set bits, in any range.
+	return 0;
+}
+
+static sb_idx_t expected_lastset(void)
+{
+	for (ssize_t range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
+		if (range_numset(range_idx)) {
+			return range_lastset(range_idx);
 		}
 	}
 
