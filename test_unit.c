@@ -483,6 +483,38 @@ void test_prev_cleared(void)
 	sb_delete(sb);
 }
 
+void test_last_set(void)
+{
+	sb_idx_t rv_idx;
+
+	sb_idx_t indexes[] = { /* Intentionally slightly out-of-order */
+		0, 0xf, 0x12, 0x42,
+		0x40, 0x43, 0x50, 0x4f, 0x7ffffffc,
+		0x7fffffff, 0x80000000, 0x80000022,
+		SB_IDX_MAX - 5, SB_IDX_MAX, SB_IDX_MAX - 1,
+	};
+
+	sb_t *sb = sb_create();
+	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
+
+	sb_idx_t highest_set = 0;
+
+	/* With no bits set, sb_lastset() should return 0. */
+	rv_idx = sb_lastset(sb);
+	CU_ASSERT_EQUAL(rv_idx, 0);
+
+	for (size_t n = 0; n < NUM(indexes); n++) {
+		int rv = sb_set(sb, indexes[n]);
+		CU_ASSERT_EQUAL(rv, 0);
+
+		if (indexes[n] > highest_set) { highest_set = indexes[n]; }
+		rv_idx = sb_lastset(sb);
+		CU_ASSERT_EQUAL(rv_idx, highest_set);
+	}
+
+	sb_delete(sb);
+}
+
 void test_nthset(void)
 {
 	int rv;
@@ -1381,6 +1413,7 @@ int main(void)
 			== NULL)
 		|| (CU_add_test(pSuite, "prev_set", test_prev_set) == NULL)
 		|| (CU_add_test(pSuite, "prev_cleared", test_prev_cleared) == NULL)
+		|| (CU_add_test(pSuite, "lastset", test_last_set) == NULL)
 		|| (CU_add_test(pSuite, "nthset", test_nthset) == NULL)
 		|| (CU_add_test(pSuite, "nthset_with_noneset", test_nthset_with_noneset)
 				== NULL)

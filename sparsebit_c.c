@@ -441,12 +441,15 @@ sb_idx_t sb_lastset(const sb_t* sb)
 {
 	if (sb->root != NULL) {
 		node_t *node = node_maximum(sb->root);
+		if (node->set_after > 0) {
+			return node->idx_start + NUM_MASK_BITS + node->set_after - 1;
+		}
 		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
 			if (node->mask & MASK_BIT_MASK(n)) {
 				return node->idx_start + n;
 			}
-			assert(0);  // Node with no mask bits set.
 		}
+		assert(0);  // Node with no mask bits set.
 	}
 
 	return 0;
