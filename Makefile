@@ -18,7 +18,7 @@
 CC = gcc
 CFLAGS = -O3 -std=c99 -Wall
 
-all: libs tests tests_subtreenum util
+all: includes libs utils tests
 
 .PHONY: clean
 clean:  ## Remove build artifacts
@@ -28,74 +28,101 @@ clean:  ## Remove build artifacts
 clobber: clean  ## Remove built items and build artifacts
 	rm -rf ./target/
 
-./build/:
-	mkdir -p ./build/
-
-./target/:
-	mkdir -p ./target/
-
-./target/lib/:
-	mkdir -p ./target/lib/
-
-./target/util/:
-	mkdir -p ./target/util/
+.PHONY: includes
+includes: ./target/include/sparsebit_c.h
 
 .PHONY: libs
-libs: ./build/ ./target/lib/ ./target/lib/libsparsebit_c.a ./target/lib/libsparsebit_c_subtreenum.a
-# Need to touch libsparsebit_c.a after it was created, so that its
-# last modification time is later than the last modification time of
-# the subdirectory containing it.
-./target/lib/libsparsebit_c.a : ./target/lib/ ./build/sparsebit_c.o
-	ar rc ./target/lib/libsparsebit_c.a ./build/sparsebit_c.o
-	touch ./target/lib/libsparsebit_c.a
+libs: ./target/lib/libsparsebit_c.a ./target/lib/libsparsebit_c_subtreenum.a
 
-./target/lib/libsparsebit_c_subtreenum.a : ./target/lib/ ./build/sparsebit_c_subtreenum.o
-	ar rc ./target/lib/libsparsebit_c_subtreenum.a ./build/sparsebit_c_subtreenum.o
-	touch ./target/lib/libsparsebit_c_subtreenum.a
-
-./build/sparsebit_c.o: ./build/ ./sparsebit_c.c ./sparsebit_c.h
-	$(CC) -c $(CFLAGS) -o ./build/sparsebit_c.o sparsebit_c.c
-
-./build/sparsebit_c_subtreenum.o: ./build/ ./sparsebit_c.c ./sparsebit_c.h
-	$(CC) -c $(CFLAGS) -D SBIT_SUBTREENUM -o ./build/sparsebit_c_subtreenum.o sparsebit_c.c
+.PHONY: utils
+utils: ./target/util/op_sieve
 
 .PHONY: tests
-tests: ./target/ ./target/test_unit ./target/test_adjacent ./target/test_prand
-./target/test_unit: ./test_unit.c ./target/lib/libsparsebit_c.a
-	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_unit ./test_unit.c -L ./target/lib/ -l sparsebit_c -l cunit
-./target/test_adjacent: ./test_adjacent.c ./target/lib/libsparsebit_c.a
-	$(CC) $(CFLAGS) -D SB_TEST -o ./target/test_adjacent ./test_adjacent.c -L ./target/lib/ -l sparsebit_c -l cunit
-./target/test_prand: ./test_prand.c ./target/lib/libsparsebit_c.a
-	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_prand ./test_prand.c -L ./target/lib/ -l sparsebit_c -l cunit
+tests: ./target/test/test_unit \
+./target/test/test_adjacent \
+./target/test/test_prand \
+./target/test/test_subtreenum_unit \
+./target/test/test_subtreenum_adjacent \
+./target/test/test_subtreenum_prand \
 
-.PHONY: tests_subtreenum
-tests_subtreenum: ./target/ ./target/test_unit_subtreenum ./target/test_adjacent_subtreenum ./target/test_prand_subtreenum
-./target/test_unit_subtreenum: ./test_unit.c ./target/lib/libsparsebit_c_subtreenum.a
-	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_unit_subtreenum ./test_unit.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
-./target/test_adjacent_subtreenum: ./test_adjacent.c ./target/lib/libsparsebit_c.a
-	$(CC) $(CFLAGS) -D SB_TEST -o ./target/test_adjacent_subtreenum ./test_adjacent.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
-./target/test_prand_subtreenum: ./test_prand.c ./target/lib/libsparsebit_c.a
-	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L -o ./target/test_prand_subtreenum ./test_prand.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
+# ---- Includes ----
+./target/include/sparsebit_c.h: ./sparsebit_c.h
+	mkdir -p ./target/include
+	cp ./sparsebit_c.h ./target/include/sparsebit_c.h
 
-.PHONY: util
-util: ./target/ ./target/util/ ./target/util/op_sieve
+# ---- Libs ----
+./build/sparsebit_c.o: ./sparsebit_c.c ./sparsebit_c.h
+	mkdir -p ./build
+	$(CC) -c $(CFLAGS) -o ./build/sparsebit_c.o sparsebit_c.c
+
+./target/lib/libsparsebit_c.a : ./build/sparsebit_c.o
+	mkdir -p ./target/lib
+	ar rc ./target/lib/libsparsebit_c.a ./build/sparsebit_c.o
+
+./build/sparsebit_c_subtreenum.o: ./sparsebit_c.c ./sparsebit_c.h
+	mkdir -p ./build
+	$(CC) -c $(CFLAGS) -D SBIT_SUBTREENUM -o ./build/sparsebit_c_subtreenum.o \
+		sparsebit_c.c
+
+./target/lib/libsparsebit_c_subtreenum.a : ./build/sparsebit_c_subtreenum.o
+	mkdir -p ./target/lib
+	ar rc ./target/lib/libsparsebit_c_subtreenum.a \
+		./build/sparsebit_c_subtreenum.o
+
+# ---- Utils ----
 ./target/util/op_sieve: ./op_sieve.c ./target/lib/libsparsebit_c.a
-	$(CC) $(CFLAGS) -D SB_TEST -o ./target/util/op_sieve ./op_sieve.c -L ./target/lib/ -l sparsebit_c
+	mkdir -p ./target/util
+	$(CC) $(CFLAGS) -D SB_TEST -o ./target/util/op_sieve ./op_sieve.c \
+		-L ./target/lib/ -l sparsebit_c
+
+# ---- Tests ----
+./target/test/test_unit: ./test_unit.c ./target/lib/libsparsebit_c.a
+	mkdir -p ./target/test
+	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L \
+		-o ./target/test/test_unit ./test_unit.c -L ./target/lib/ \
+		-l sparsebit_c -l cunit
+
+./target/test/test_adjacent: ./test_adjacent.c ./target/lib/libsparsebit_c.a
+	$(CC) $(CFLAGS) -D SB_TEST -o ./target/test/test_adjacent \
+		./test_adjacent.c -L ./target/lib/ -l sparsebit_c -l cunit
+
+./target/test/test_prand: ./test_prand.c ./target/lib/libsparsebit_c.a
+	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L \
+		-o ./target/test/test_prand ./test_prand.c -L ./target/lib/ \
+		-l sparsebit_c -l cunit
+
+./target/test/test_subtreenum_unit: ./test_unit.c \
+./target/lib/libsparsebit_c_subtreenum.a
+	mkdir -p ./target
+	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L \
+		-o ./target/test/test_subtreenum_unit ./test_unit.c -L ./target/lib/ \
+		-l sparsebit_c_subtreenum -l cunit
+
+./target/test/test_subtreenum_adjacent: ./test_adjacent.c \
+./target/lib/libsparsebit_c.a
+	$(CC) $(CFLAGS) -D SB_TEST -o ./target/test/test_subtreenum_adjacent \
+		./test_adjacent.c -L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
+
+./target/test/test_subtreenum_prand: ./test_prand.c \
+./target/lib/libsparsebit_c.a
+	$(CC) $(CFLAGS) -D SB_TEST -D _POSIX_C_SOURCE=200809L \
+		-o ./target/test/test_subtreenum_prand ./test_prand.c \
+		-L ./target/lib/ -l sparsebit_c_subtreenum -l cunit
 
 .PHONY: smoketest
 smoketest: tests
-	./target/test_unit
-	./target/test_adjacent
-	./target/test_prand 0 999
+	./target/test/test_unit
+	./target/test/test_adjacent
+	./target/test/test_prand 0 999
 	echo "---- subtreenum ----"
-	./target/test_unit_subtreenum
-	./target/test_adjacent_subtreenum
-	./target/test_prand_subtreenum 0 999
+	./target/test/test_subtreenum_unit
+	./target/test/test_subtreenum_adjacent
+	./target/test/test_subtreenum_prand
 
 .PHONY: presubmit
 presubmit: smoketest
-	./target/test_adjacent -n4
-	./target/test_prand 0 99999
+	./target/test/test_adjacent -n4
+	./target/test/test_prand 0 99999
 	echo "---- subtreenum ----"
-	./target/test_adjacent_subtreenum -n4
-	./target/test_prand_subtreenum 0 99999
+	./target/test/test_subtreenum_adjacent -n4
+	./target/test/test_subtreenum_prand 0 99999
