@@ -1886,8 +1886,9 @@ sb_pdynstr_t sb_validate(const sb_t* sb)
 	// Is the sum of bits set across all the nodes equal to the total
 	// maintained in the sparsebit structure.
 	if (sum_pernode_set != sb_numset(sb)) {
-		return sb_dyn_sprintf("sb->num_set: %llu not equal to "
-			"sum_pernode_set: %llu", sb_numset(sb), sum_pernode_set);
+		return sb_dyn_sprintf("sb->num_set: %#" SB_PRI_NUM
+			"not equal to sum_pernode_set: %l#" SB_PRI_NUM,
+			sb_numset(sb), sum_pernode_set);
 	}
 
 	return NULL;

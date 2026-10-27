@@ -939,7 +939,7 @@ void test_adjacent_clear_across_mask(void)
 	actual_nodes_num = sb_nodes_num(sb);
 	if (actual_nodes_num != expected_nodes_num) {
 		fprintf(stderr, "Unexpected number of nodes001:\n"
-			"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+			"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
 			actual_nodes_num, expected_nodes_num);
 		fputs(sb_dump(sb), stderr);
 		CU_FAIL("Unexpected number of nodes001");
@@ -960,7 +960,7 @@ void test_adjacent_clear_across_mask(void)
 	actual_nodes_num = sb_nodes_num(sb);
 	if (actual_nodes_num != expected_nodes_num) {
 		fprintf(stderr, "Unexpected number of nodes002:\n"
-			"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+			"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
 			actual_nodes_num, expected_nodes_num);
 		fputs(sb_dump(sb), stderr);
 		CU_FAIL("Unexpected number of nodes002");
@@ -983,7 +983,7 @@ void test_adjacent_clear_across_mask(void)
 	actual_nodes_num = sb_nodes_num(sb);
 	if (actual_nodes_num != expected_nodes_num) {
 		fprintf(stderr, "Unexpected number of nodes003:\n"
-			"  actual: %#" SB_PRI_IDX " expected: %#" SB_PRI_IDX "\n",
+			"  actual: %#" SB_PRI_NUM " expected: %#" SB_PRI_NUM "\n",
 			actual_nodes_num, expected_nodes_num);
 		fputs(sb_dump(sb), stderr);
 		CU_FAIL("Unexpected number of nodes003");
@@ -1241,7 +1241,7 @@ void test_combinations4(void)
 		}
 
 		// Validate index returned for each sb_nthset().
-		for (sb_num_t nth_idx = 0; nth_idx < expected_numset; nth_idx++) {
+		for (sb_idx_t nth_idx = 0; nth_idx < expected_numset; nth_idx++) {
 			sb_num_t num_set = 0;
 			sb_idx_t expected_rv;
 			for (expected_rv = range_min; expected_rv <= range_max;
@@ -1264,9 +1264,9 @@ void test_combinations4(void)
 						ranges[operations[op_idx].range_idx].num);
 				}
 				fprintf(stderr,
-					"  nth_idx: %#" SB_PRI_NUM
-					"  actual_rv: %#" SB_PRI_NUM
-					"  expected_rv: %#" SB_PRI_NUM "\n",
+					"  nth_idx: %#" SB_PRI_IDX
+					"  actual_rv: %#" SB_PRI_IDX
+					"  expected_rv: %#" SB_PRI_IDX "\n",
 					nth_idx, actual_rv, expected_rv);
 				fputs(sb_dump(sb), stderr);
 
@@ -1368,8 +1368,8 @@ void test_store_load(void)
 		bool bit = sb_isset(sb2, idx);
 		if (bit != expect_set) {
 			fprintf(stderr,
-				"Unexpected bit setting idx: %llx bit: %i expect_set: %i\n",
-				(unsigned long long) idx, bit, expect_set);
+				"Unexpected bit setting idx: %#" SB_PRI_IDX
+				" bit: %u expect_set: %u\n", idx, bit, expect_set);
 			fputs(sb_dump(sb2), stderr);
 			CU_FAIL_FATAL("Unexpected bit setting");
 		}

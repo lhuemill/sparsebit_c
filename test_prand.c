@@ -27,8 +27,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#define DEFAULT_PASS_START 0
-#define DEFAULT_PASS_END 10000
+#define DEFAULT_PASS_START 0l
+#define DEFAULT_PASS_END 10000l
 #define PASSED_DISPLAY_STRIDE 100
 
 #define NUM_TEST_RANGES 6
@@ -140,8 +140,9 @@ int main(int argc, char *argv[])
 	FILE *tempfile;
 
 	// Command-line Parsing
-	long pass_start = DEFAULT_PASS_START;
-	long pass_end = DEFAULT_PASS_END;
+	long pass_start = DEFAULT_PASS_START; // Signed to detect minus during
+	                                      // parsing.
+	long pass_end = DEFAULT_PASS_END; // Signed to detect minus during parsing.
 	static const struct option options[] = {
 		{} // End-of-Array Marker
 	};
@@ -184,8 +185,8 @@ int main(int argc, char *argv[])
 			pass_end = pass_start;
 		}
 	}
-	printf("pass_start: %lu\n", pass_start);
-	printf("pass_end: %lu\n", pass_end);
+	printf("pass_start: %li\n", pass_start);
+	printf("pass_end: %li\n", pass_end);
 	puts("");
 	if (pass_end < pass_start) {
 		fputs("Pass_start must be before pass_end\n", stderr);
@@ -326,7 +327,7 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_ANYSET Unexpected Any Set:\n"
-						"  actual: %i expected: %i\n",
+						"  actual: %u expected: %u\n",
 						pass, actual_bool, expected_bool);
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
@@ -356,7 +357,7 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_ISSET Unexpected Is Set:\n"
-						"  actual: %i expected: %i idx: %#" SB_PRI_IDX "\n",
+						"  actual: %u expected: %u idx: %#" SB_PRI_IDX "\n",
 						pass, actual_bool, expected_bool, idx);
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
@@ -448,7 +449,7 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_ANYCLEARED Unexpected Any Cleared:\n"
-						"  actual: %i expected: %i\n",
+						"  actual: %u expected: %u\n",
 						pass, actual_bool, expected_bool);
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
@@ -478,7 +479,7 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_ISCLEARED Unexpected Is Cleared:\n"
-						"  actual: %i expected: %i idx: %#" SB_PRI_IDX "\n",
+						"  actual: %u expected: %u idx: %#" SB_PRI_IDX "\n",
 						pass, actual_bool, expected_bool, idx);
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
@@ -558,7 +559,7 @@ int main(int argc, char *argv[])
 					display_passed_passes(&passed_last_displayed, pass - 1);
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"QUERY_NTHSET Unexpected errno Value:\n"
-						"  actual: %u expected: %u"
+						"  actual: %i expected: %i"
 						" nth_idx: %#" SB_PRI_IDX "\n",
 						pass, actual_errno, expected_errno, p_op->nth_idx);
 					display_operations(stderr);
@@ -600,7 +601,7 @@ int main(int argc, char *argv[])
 
 					fprintf(stderr, "Pass %li: Validation Error - "
 						"Unexpected Bit Setting:\n"
-						"  idx: %#" SB_PRI_IDX " actual: %i expected: %i\n",
+						"  idx: %#" SB_PRI_IDX " actual: %u expected: %u\n",
 						pass, idx, actual, expected);
 					display_operations(stderr);
 					fputs(sb_dump(sb), stderr);
@@ -785,9 +786,9 @@ int main(int argc, char *argv[])
 			if (actual_nextset != expected_idx) {
 				display_passed_passes(&passed_last_displayed, pass - 1);
 				fprintf(stderr,
-					"Failed unexpected nextset, : actual %llx expected %llx\n",
-					(unsigned long long) actual_nextset,
-					(unsigned long long) expected_idx);
+					"Failed unexpected nextset, : actual %#" SB_PRI_IDX " "
+					"expected %#" SB_PRI_IDX "\n",
+					actual_nextset, expected_idx);
 				exit(38);
 			}
 			prev_idx = expected_idx;
@@ -817,8 +818,10 @@ static void help(FILE *stream)
 	usage(stream);
 	fputs("Sparsebit_c Pseudo-Random Test\n", stream);
 	fputs("  -?h,--help Help\n", stream);
-	fputs("  pass_start: Starting pass number (default: 0)\n", stream);
-	fputs("  pass_end: Ending pass number (default: 10000)\n", stream);
+	fprintf(stream, "  pass_start: Starting pass number (default: %li)\n",
+		DEFAULT_PASS_START);
+	fprintf(stream, "  pass_end: Ending pass number (default: %li)\n",
+		DEFAULT_PASS_END);
 }
 
 static void display_passed_passes(long *palready_displayed, long last_passed)
