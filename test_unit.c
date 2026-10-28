@@ -267,7 +267,7 @@ void test_first_next_set(void)
 		74, 256, 512 - 1,
 		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
 	};
-	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+	for (size_t n = 0; n < NUM(idx_set); n++) {
 		rv = sb_set(sb, idx_set[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
@@ -285,7 +285,7 @@ void test_first_next_set(void)
 	idx = sb_firstset(sb);
 	CU_ASSERT_EQUAL(idx, idx_set[0]);
 
-	for (unsigned int n = 1; n < NUM(idx_set); n++) {
+	for (size_t n = 1; n < NUM(idx_set); n++) {
 		idx = sb_nextset(sb, idx_set[n]);
 		if ((n + 1) < NUM(idx_set)) {
 			CU_ASSERT_EQUAL(idx, idx_set[n + 1]);
@@ -303,7 +303,7 @@ void test_first_next_set(void)
 	idx = sb_firstset(sb);
 	CU_ASSERT_EQUAL(idx, idx_set[1]);
 
-	for (unsigned int n = 2; n < (NUM(idx_set) - 1); n++) {
+	for (size_t n = 2; n < (NUM(idx_set) - 1); n++) {
 		idx = sb_nextset(sb, idx_set[n]);
 		if ((n + 1) < (NUM(idx_set) - 1)) {
 			CU_ASSERT_EQUAL(idx, idx_set[n + 1]);
@@ -345,7 +345,7 @@ void test_first_next_cleared(void)
 		68, 316, 1024 - 1, 1024,
 		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
 	};
-	for (unsigned int n = 0; n < NUM(idx_cleared); n++) {
+	for (size_t n = 0; n < NUM(idx_cleared); n++) {
 		rv = sb_clear(sb, idx_cleared[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
@@ -363,7 +363,7 @@ void test_first_next_cleared(void)
 	idx = sb_firstcleared(sb);
 	CU_ASSERT_EQUAL(idx, idx_cleared[0]);
 
-	for (unsigned int n = 1; n < NUM(idx_cleared); n++) {
+	for (size_t n = 1; n < NUM(idx_cleared); n++) {
 		idx = sb_nextcleared(sb, idx_cleared[n]);
 		if ((n + 1) < NUM(idx_cleared)) {
 			if ((idx_cleared[n] < set_num) && ((idx_cleared[n + 1] > set_num))) {
@@ -400,17 +400,17 @@ void test_prev_set(void)
 		68, 512, 1024 - 1,
 		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
 	};
-	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+	for (size_t n = 0; n < NUM(idx_set); n++) {
 		rv = sb_set(sb, idx_set[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
 
-	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+	for (size_t n = 0; n < NUM(idx_set); n++) {
 		sb_idx_t expected_rv = (idx_set[n] == 0) ? 0 : idx_set[n - 1];
 		sb_idx_t actual_rv = sb_prevset(sb, idx_set[n]);
 		if (actual_rv != expected_rv) {
 			fprintf(stderr, "Unexpected sb_prevset rv,\n"
-				"  n: %u idx_set[n]: %#" SB_PRI_IDX "\n"
+				"  n: %zu idx_set[n]: %#" SB_PRI_IDX "\n"
 				"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
 				n, idx_set[n], actual_rv, expected_rv);
 			CU_ASSERT_EQUAL(actual_rv, expected_rv);
@@ -449,12 +449,12 @@ void test_prev_cleared(void)
 		196, 444, 2048 - 1, 2048,
 		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
 	};
-	for (unsigned int n = 0; n < NUM(idx_cleared); n++) {
+	for (size_t n = 0; n < NUM(idx_cleared); n++) {
 		rv = sb_clear(sb, idx_cleared[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
 
-	for (unsigned int n = 0; n < NUM(idx_cleared); n++) {
+	for (size_t n = 0; n < NUM(idx_cleared); n++) {
 		sb_idx_t expected_rv = (n > 0) ? idx_cleared[n - 1] : 0;
 		if ((n >= 1)
 			&& (idx_cleared[n - 1] < (SB_IDX_MAX - set_num + 1))
@@ -465,7 +465,7 @@ void test_prev_cleared(void)
 
 		if (actual_rv != expected_rv) {
 				fprintf(stderr, "Unexpected sb_prevcleared rv,\n"
-					"  n: %u idx_cleared[n]: %#" SB_PRI_IDX "\n"
+					"  n: %zu idx_cleared[n]: %#" SB_PRI_IDX "\n"
 					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
 					n, idx_cleared[n], actual_rv, expected_rv);
 				CU_ASSERT_EQUAL(actual_rv, expected_rv);
@@ -529,7 +529,7 @@ void test_nthset(void)
 		0x103f,
 		SB_IDX_MAX - 3, SB_IDX_MAX - 1, SB_IDX_MAX,
 	};
-	for (unsigned int n = 0; n < NUM(idx_set); n++) {
+	for (size_t n = 0; n < NUM(idx_set); n++) {
 		rv = sb_set(sb, idx_set[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
@@ -537,7 +537,7 @@ void test_nthset(void)
 	// For number of set bits, plus 3 more.  The 3 more, are to validate
 	// behavior when asking for the index of the Nth bit, beyond the number
 	// of set bits.
-	for (unsigned int n = 0; n < NUM(idx_set) + 3; n++) {
+	for (size_t n = 0; n < NUM(idx_set) + 3; n++) {
 		sb_idx_t expected_rv = (n < NUM(idx_set)) ? idx_set[n] : 0;
 
 		// Set errno to a magic value dependent on the current value of n.
@@ -553,7 +553,7 @@ void test_nthset(void)
 
 		if (actual_rv != expected_rv) {
 				fprintf(stderr, "Unexpected sb_nthset rv,\n"
-					"  n: %u\n"
+					"  n: %zu\n"
 					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
 					n, actual_rv, expected_rv);
 				CU_ASSERT_EQUAL(actual_rv, expected_rv);
@@ -561,7 +561,7 @@ void test_nthset(void)
 
 		if (actual_errno != expected_errno) {
 				fprintf(stderr, "Unexpected sb_nthset errno,\n"
-					"  n: %u\n"
+					"  n: %zu\n"
 					"  actual_errno: %#x expected_errno: %#x\n",
 					n, actual_errno, expected_errno);
 				CU_ASSERT_EQUAL(actual_errno, expected_errno);
@@ -577,7 +577,7 @@ void test_nthset_with_noneset(void)
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
 
-	for (unsigned int n = 0; n < 5; n++) {
+	for (size_t n = 0; n < 5; n++) {
 		// With no bits set, should always get a return index of 0,
 		// with errno set to ESRCH.
 		sb_idx_t expected_rv = 0;
@@ -590,7 +590,7 @@ void test_nthset_with_noneset(void)
 
 		if (actual_rv != expected_rv) {
 				fprintf(stderr, "Unexpected sb_nthset rv,\n"
-					"  n: %u\n"
+					"  n: %zu\n"
 					"  actual_rv: %#" SB_PRI_IDX " expected_rv: %#" SB_PRI_IDX "\n",
 					n, actual_rv, expected_rv);
 				CU_ASSERT_EQUAL(actual_rv, expected_rv);
@@ -598,7 +598,7 @@ void test_nthset_with_noneset(void)
 
 		if (actual_errno != expected_errno) {
 				fprintf(stderr, "Unexpected sb_nthset errno,\n"
-					"  n: %u\n"
+					"  n: %zu\n"
 					"  actual_errno: %#x expected_errno: %#x\n",
 					n, actual_errno, expected_errno);
 				CU_ASSERT_EQUAL(actual_errno, expected_errno);
@@ -696,7 +696,7 @@ void test_permutations6(void)
 	MEMCLEAR(idx_set, sizeof(idx_set));
 	do {
 		// Increment Add Indexes
-		unsigned int n;
+		size_t n;
 		for (n = 0; n < NUM(idx_set); n++) {
 			idx_set[n]++;
 			if (idx_set[n] < NUM(idx_set)) {
@@ -708,8 +708,8 @@ void test_permutations6(void)
 
 		// Skip if any duplicate set indexes.
 		bool skip = false;
-		for (unsigned int n1 = 0; n1 < NUM(idx_set) - 1; n1++) {
-			for (unsigned int n2 = n1 + 1; n2 < NUM(idx_set); n2++) {
+		for (size_t n1 = 0; n1 < NUM(idx_set) - 1; n1++) {
+			for (size_t n2 = n1 + 1; n2 < NUM(idx_set); n2++) {
 				if (idx_set[n1] == idx_set[n2]) {
 					skip = true;
 					break;
@@ -725,7 +725,7 @@ void test_permutations6(void)
 		MEMCLEAR(idx_clear, sizeof(idx_clear));
 		do {
 			// Increment Clear Indexes
-			unsigned int n;
+			size_t n;
 			for (n = 0; n < NUM(idx_clear); n++) {
 				idx_clear[n]++;
 				if (idx_clear[n] < NUM(idx_clear)) {
@@ -737,8 +737,8 @@ void test_permutations6(void)
 
 			// Skip if any duplicate clear indexes.
 			bool skip = false;
-			for (unsigned int n1 = 0; n1 < NUM(idx_clear) - 1; n1++) {
-				for (unsigned int n2 = n1 + 1; n2 < NUM(idx_clear); n2++) {
+			for (size_t n1 = 0; n1 < NUM(idx_clear) - 1; n1++) {
+				for (size_t n2 = n1 + 1; n2 < NUM(idx_clear); n2++) {
 					if (idx_clear[n1] == idx_clear[n2]) {
 						skip = true;
 						break;
@@ -753,7 +753,7 @@ void test_permutations6(void)
 			sb_t *sb = sb_create();
 
 			// Perform the set operations, in the order given by idx_set[].
-			for (unsigned int n = 0; n < NUM(idx_set); n++) {
+			for (size_t n = 0; n < NUM(idx_set); n++) {
 				sb_set(sb, (idx_set[n] * idx_stride) + idx_base);
 			}
 			sb_pdynstr_t err_string = sb_validate(sb);
@@ -765,7 +765,7 @@ void test_permutations6(void)
 			}
 
 			// Perform the clear operations, in the order given by idx_clear[].
-			for (unsigned int n = 0; n < NUM(idx_clear); n++) {
+			for (size_t n = 0; n < NUM(idx_clear); n++) {
 				sb_clear(sb, (idx_clear[n] * idx_stride) + idx_base);
 				err_string = sb_validate(sb);
 				if (err_string) {
@@ -799,7 +799,7 @@ void test_set_after_single(void)
 	// and then a single bit at the mask boundary.
 	sb_idx_t boundary = 0x1000;
 	int offsets[] = {-5, -2, -1, 0};
-	for (unsigned int n = 0; n < NUM(offsets); n++) {
+	for (size_t n = 0; n < NUM(offsets); n++) {
 		rv = sb_set(sb, boundary + offsets[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
@@ -830,7 +830,7 @@ void test_set_after_clear_single(void)
 	sb_idx_t boundary = 0x2000;
 	int offsets[] = {-5, -3, -2, 0, 1, 2, 3, 4};
 	int offset_clear = 2;
-	for (unsigned int n = 0; n < NUM(offsets); n++) {
+	for (size_t n = 0; n < NUM(offsets); n++) {
 		rv = sb_set(sb, boundary + offsets[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 	}
@@ -865,7 +865,7 @@ void test_set_after_then_clear_mask(void)
 	sb_idx_t boundary = 0x2000;
 	int offsets[] = {-4, 0, 1, 2};
 	int offset_clear = -4;
-	for (unsigned int n = 0; n < NUM(offsets); n++) {
+	for (size_t n = 0; n < NUM(offsets); n++) {
 		rv = sb_set(sb, boundary + offsets[n]);
 		CU_ASSERT_EQUAL_FATAL(rv, 0);
 		sb_pdynstr_t err_string = sb_validate(sb);
@@ -922,7 +922,7 @@ void test_adjacent_clear_across_mask(void)
 	sb_t *sb = sb_create();
 	CU_ASSERT_PTR_NOT_EQUAL_FATAL(sb, NULL);
 
-	for (unsigned int n = 0; n < groups_num; n++) {
+	for (size_t n = 0; n < groups_num; n++) {
 		sb_idx_t idx = groups_idx_start + n * groups_idx_stride;
 
 		rv = sb_set(sb, idx);
@@ -1017,7 +1017,7 @@ void test_combinations4(void)
 	};
 
 	sb_idx_t range_min, range_max;
-	for (unsigned int n = 0; n < NUM(ranges); n++) {
+	for (size_t n = 0; n < NUM(ranges); n++) {
 		if ((n == 0) || (ranges[n].idx < range_min)) {
 			range_min = ranges[n].idx;
 		}
@@ -1040,16 +1040,16 @@ void test_combinations4(void)
 		sb_t *sb = sb_create();
 
 		// Perform Operations
-		for (unsigned int n1 = 0; n1 < NUM(operations); n1++) {
+		for (size_t n1 = 0; n1 < NUM(operations); n1++) {
 			struct range *prange = &ranges[operations[n1].range_idx];
 			if (operations[n1].do_set) {
 				sb_setnum(sb, prange->idx, prange->num);
-				for (unsigned int n2 = 0; n2 < prange->num; n2++) {
+				for (size_t n2 = 0; n2 < prange->num; n2++) {
 					expected[prange->idx - range_min + n2] = true;
 				} 
 			} else {
 				sb_clearnum(sb, prange->idx, prange->num);
-				for (unsigned int n2 = 0; n2 < prange->num; n2++) {
+				for (size_t n2 = 0; n2 < prange->num; n2++) {
 					expected[prange->idx - range_min + n2] = false;
 				}
 			}
@@ -1058,8 +1058,8 @@ void test_combinations4(void)
 			if (err_string) {
 				fprintf(stderr, "Sparsebit Validate Failed: %s\n", err_string);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1073,13 +1073,13 @@ void test_combinations4(void)
 
 		// Validate setting of each bit, along with nextset, nextcleared,
 		// prevset, and prevcleared for each bit in the ranges.
-		for (unsigned int n1 = 0; n1 < (range_max - range_min + 1); n1++) {
+		for (size_t n1 = 0; n1 < (range_max - range_min + 1); n1++) {
 			sb_idx_t idx = range_min + n1;
 
 			bool expected_isset = expected[n1];
 
 			sb_idx_t expected_nextset = 0;
-			int n2;
+			ssize_t n2;
 			for (n2 = (idx - range_min) + 1; n2 < (range_max - range_min + 1); n2++) {
 				if (expected[n2]) {
 					expected_nextset = range_min + n2;
@@ -1118,8 +1118,8 @@ void test_combinations4(void)
 			if (actual_isset != expected_isset) {
 				fputs("Error - Unexpected bit setting\n", stderr);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1137,8 +1137,8 @@ void test_combinations4(void)
 			if (actual_nextset != expected_nextset) {
 				fputs("Error - Unexpected next set\n", stderr);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1157,8 +1157,8 @@ void test_combinations4(void)
 			if (actual_nextcleared != expected_nextcleared) {
 				fputs("Error - Unexpected next cleared\n", stderr);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1177,8 +1177,8 @@ void test_combinations4(void)
 			if (actual_prevset != expected_prevset) {
 				fputs("Error - Unexpected previous set\n", stderr);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1197,8 +1197,8 @@ void test_combinations4(void)
 			if (actual_prevcleared != expected_prevcleared) {
 				fputs("Error - Unexpected previous cleared\n", stderr);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1224,8 +1224,8 @@ void test_combinations4(void)
 		if (actual_numset != expected_numset) {
 			fputs("Error - Unexpected num set\n", stderr);
 			fputs("Operations:\n", stderr);
-			for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-				fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+			for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+				fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 					" num: %#" SB_PRI_NUM "\n",
 					op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 					ranges[operations[op_idx].range_idx].idx,
@@ -1256,8 +1256,8 @@ void test_combinations4(void)
 			if (actual_rv != expected_rv) {
 				fputs("Error - Unexpected Nth set return value\n", stderr);
 				fputs("Operations:\n", stderr);
-				for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
-					fprintf(stderr, "  %u %s idx: %#" SB_PRI_IDX
+				for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
+					fprintf(stderr, "  %zu %s idx: %#" SB_PRI_IDX
 						" num: %#" SB_PRI_NUM "\n",
 						op_idx, operations[op_idx].do_set ? "SET_NUM" : "CLEAR_NUM",
 						ranges[operations[op_idx].range_idx].idx,
@@ -1277,7 +1277,7 @@ void test_combinations4(void)
 		sb_delete(sb);
 
 		// Increment to next combination of operations.
-		unsigned int n;
+		size_t n;
 		for (n = 0; n < NUM(operations); n++) {
 			operations[n].range_idx++;
 			if (operations[n].range_idx >= NUM(ranges)) {
@@ -1328,7 +1328,7 @@ void test_store_load(void)
 	}
 
 	// Set bits
-	for (int n1 = 0; n1 < NUM(indexes); n1++) {
+	for (size_t n1 = 0; n1 < NUM(indexes); n1++) {
 		sb_idx_t idx = indexes[n1];
 		if (idx > highest_idx) { highest_idx = idx; }
 		rv = sb_set(sb1, idx);
@@ -1358,7 +1358,7 @@ void test_store_load(void)
 	// Validate bit settings within sb2.
 	for (sb_idx_t idx = 0; idx < highest_idx + 4; idx++) {
 		bool expect_set = false;
-		for (int n1 = 0; n1 < NUM(indexes); n1++) {
+		for (size_t n1 = 0; n1 < NUM(indexes); n1++) {
 			if (idx == indexes[n1]) {
 				expect_set = true;
 				break;

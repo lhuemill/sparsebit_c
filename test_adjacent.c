@@ -159,7 +159,7 @@ int main(int argc, char *argv[])
 	printf("nodes_num: %lu\n", nodes_num);
 	printf("edge_margin: %lu\n", edge_margin);
 	unsigned long long iter_total = 1;
-	for (unsigned int i = 0; i < nodes_num; i++) {
+	for (size_t i = 0; i < nodes_num; i++) {
 		iter_total *= (MASK_TYP_NUM * SETAFTER_TYP_NUM);
 	}
 	printf("total_iterations: %llu\n", iter_total);
@@ -520,7 +520,7 @@ static sb_t *node_sb_create(sb_pdynstr_t *p_ops)
 		}
 
 		// Handle node mask bits.
-		for (unsigned int mask_idx = 0; mask_idx < MASK_BITS; mask_idx++) {
+		for (size_t mask_idx = 0; mask_idx < MASK_BITS; mask_idx++) {
 			if (nodep->mask & (1llu << mask_idx)) {
 				if (!within_range) {
 					idx_start = idx_end = nodep->idx_start + mask_idx;
@@ -651,7 +651,7 @@ static sb_idx_t *nodes_tst_indexes(ssize_t margin, size_t *pnum)
 
 		// Add indexes for mask bits with settings different from previous
 		// mask bit.
-		for (unsigned int i = 1; i < MASK_BITS; i++) {
+		for (size_t i = 1; i < MASK_BITS; i++) {
 			if ((bool)(nodep->mask & (1llu << (i - 1)))
 				!= (bool)(nodep->mask & (1llu << i))) {
 				for (ssize_t offset = -margin; offset <= margin; offset++) {

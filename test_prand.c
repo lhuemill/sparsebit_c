@@ -222,7 +222,7 @@ int main(int argc, char *argv[])
 		// bool force_default_ranges = 
 		bool use_default_ranges = (rand() >= USE_DEFAULT_RANGE_THRESHOLD)
 			? true : false;
-		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
+		for (size_t range_idx = 0; range_idx < NUM(test_ranges);
 			range_idx++) {
 
 			bool idx_overlaps = false;
@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
 				}
 
 				// Does chosen idx overlap with any of the ranges already setup?
-				for (unsigned int range_idx2 = 0; range_idx2 < range_idx;
+				for (size_t range_idx2 = 0; range_idx2 < range_idx;
 					range_idx2++) {
 					if ((idx >= test_ranges[range_idx2].start_idx)
 						&& (idx < test_ranges[range_idx2].start_idx
@@ -263,7 +263,7 @@ int main(int argc, char *argv[])
 
 		// Pseudo-Randomly determine the operations to be performed.
 		MEMCLEAR(operations, sizeof(operations));
-		for (unsigned int op_idx = 0; op_idx < NUM(operations); op_idx++) {
+		for (size_t op_idx = 0; op_idx < NUM(operations); op_idx++) {
 			operations[op_idx].range_idx = rand() % NUM(test_ranges);
 			operations[op_idx].op = OP_TYPE_FIRST + (rand() % OP_TYPE_NUM);
 			operations[op_idx].offset = rand() % BITS_PER_TEST_RANGE;
@@ -315,7 +315,7 @@ int main(int argc, char *argv[])
 
 			case SET_NUM:
 				sb_setnum(sb, idx, p_op->num);
-				for (unsigned int n1 = 0; n1 < p_op->num; n1++) {
+				for (size_t n1 = 0; n1 < p_op->num; n1++) {
 					test_ranges[p_op->range_idx].expected[p_op->offset + n1] = true;
 				}
 				break;
@@ -434,7 +434,7 @@ int main(int argc, char *argv[])
 
 			case CLEAR_NUM:
 				sb_clearnum(sb, idx, p_op->num);
-				for (unsigned int n1 = 0; n1 < p_op->num; n1++) {
+				for (size_t n1 = 0; n1 < p_op->num; n1++) {
 					test_ranges[p_op->range_idx].expected[p_op->offset + n1] = false;
 				}
 				break;
@@ -588,9 +588,9 @@ int main(int argc, char *argv[])
 
 		// Validate Individual Bit Settings
 		// within the expected bit array of each range.
-		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
+		for (size_t range_idx = 0; range_idx < NUM(test_ranges);
 			range_idx++) {
-			for (unsigned int bit_idx = 0;
+			for (size_t bit_idx = 0;
 				bit_idx < NUM(test_ranges[range_idx].expected); bit_idx++) {
 				sb_idx_t idx = test_ranges[range_idx].start_idx + bit_idx;
 				bool expected = expected_isset(idx);
@@ -642,10 +642,10 @@ int main(int argc, char *argv[])
 		// Will validate sb_nextset() for every bit index within a range, plus
 		// where valid the bit indexes for two bits immediately before and
 		// immediately after each range.
-		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
+		for (size_t range_idx = 0; range_idx < NUM(test_ranges);
 			range_idx++) {
 			struct test_range *p_range = &test_ranges[range_idx];
-			for (int bit_idx = -2; bit_idx < ((int)NUM(p_range->expected) + 2);
+			for (ssize_t bit_idx = -2; bit_idx < ((int)NUM(p_range->expected) + 2);
 				bit_idx++) {
 				sb_idx_t idx1 = p_range->start_idx + bit_idx;
 				if ((bit_idx < 0) && (idx1 > p_range->start_idx) ) {
@@ -675,10 +675,10 @@ int main(int argc, char *argv[])
 		// Will validate sb_nextcleared() for every bit index within a range, plus
 		// where valid the bit indexes for two bits immediately before and
 		// immediately after each range.
-		for (unsigned int range_idx = 0; range_idx < NUM(test_ranges);
+		for (size_t range_idx = 0; range_idx < NUM(test_ranges);
 			range_idx++) {
 			struct test_range *p_range = &test_ranges[range_idx];
-			for (int bit_idx = -2; bit_idx < ((int)NUM(p_range->expected) + 2);
+			for (ssize_t bit_idx = -2; bit_idx < ((int)NUM(p_range->expected) + 2);
 				bit_idx++) {
 				sb_idx_t idx1 = p_range->start_idx + bit_idx;
 				if ((bit_idx < 0) && (idx1 > p_range->start_idx) ) {
@@ -848,8 +848,8 @@ static void display_passed_passes(long *palready_displayed, long last_passed)
 static void display_operations(FILE *stream)
 {
 	fputs("Operations:\n", stderr);
-	for (unsigned int opt_idx = 0; opt_idx <  NUM(operations); opt_idx++) {
-		fprintf(stderr, "  %3u %u (%s)%*s idx: %#" SB_PRI_IDX
+	for (size_t opt_idx = 0; opt_idx <  NUM(operations); opt_idx++) {
+		fprintf(stderr, "  %3zu %u (%s)%*s idx: %#" SB_PRI_IDX
 			" num: %#" SB_PRI_NUM
 			" nth_idx: %#" SB_PRI_IDX "\n",
 			opt_idx, operations[opt_idx].op,
@@ -866,7 +866,7 @@ static const char *op_string(enum OP op)
 {
 	static const char *unknown_str = "Unknown";
 
-	for (unsigned int n1 = 0; n1 < NUM(op_strings); n1++) {
+	for (size_t n1 = 0; n1 < NUM(op_strings); n1++) {
 		if (op_strings[n1].op == op) {
 			return op_strings[n1].str;
 		}
@@ -892,7 +892,7 @@ static sb_num_t range_numset(unsigned int range_idx)
 
 	struct test_range *p_range = &test_ranges[range_idx];
 
-	for (unsigned int n1 = 0; n1 < NUM(p_range->expected); n1++) {
+	for (size_t n1 = 0; n1 < NUM(p_range->expected); n1++) {
 		if (p_range->expected[n1]) {
 			total++;
 		}
@@ -905,7 +905,7 @@ static sb_idx_t range_firstset(unsigned int range_idx)
 {
 	struct test_range *p_range = &test_ranges[range_idx];
 
-	for (unsigned int n1 = 0; n1 < NUM(p_range->expected); n1++) {
+	for (size_t n1 = 0; n1 < NUM(p_range->expected); n1++) {
 		if (p_range->expected[n1]) {
 			return p_range->start_idx + n1;
 		}
@@ -944,7 +944,7 @@ static bool range_supports_idx(unsigned int range_idx, sb_idx_t idx)
 
 static bool expected_isset(sb_idx_t idx)
 {
-	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+	for (size_t range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		// Does this range maintain the expected state of idx?
 		if ((idx >= test_ranges[range_idx].start_idx)
 			&& (idx <= (test_ranges[range_idx].start_idx
@@ -962,7 +962,7 @@ static bool expected_isset(sb_idx_t idx)
 static sb_num_t expected_numset(void)
 {
 	sb_num_t expected_numset = 0;
-	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+	for (size_t range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		expected_numset += range_numset(range_idx);
 	}
 
@@ -971,7 +971,7 @@ static sb_num_t expected_numset(void)
 
 static sb_idx_t expected_firstset(void)
 {
-	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+	for (size_t range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		if (range_numset(range_idx)) {
 			return range_firstset(range_idx);
 		}
@@ -995,9 +995,9 @@ static sb_idx_t expected_lastset(void)
 
 static sb_idx_t expected_nextset(sb_idx_t start_idx)
 {
-	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+	for (size_t range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		struct test_range *p_range = &test_ranges[range_idx];
-		for (unsigned int bit_idx = 0; bit_idx < NUM(p_range->expected);
+		for (size_t bit_idx = 0; bit_idx < NUM(p_range->expected);
 			bit_idx++) {
 			sb_idx_t idx = p_range->start_idx + bit_idx;
 			if (idx <= start_idx) {
@@ -1014,11 +1014,12 @@ static sb_idx_t expected_nextset(sb_idx_t start_idx)
 
 static sb_idx_t expected_prevset(sb_idx_t start_idx)
 {
-	for (int range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
+	for (ssize_t range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
 		struct test_range *p_range = &test_ranges[range_idx];
 
 		if (p_range->start_idx >= start_idx) { continue; }
-		for (int bit_idx = NUM(p_range->expected) - 1; bit_idx >= 0; bit_idx--) {
+		for (ssize_t bit_idx = NUM(p_range->expected) - 1;
+			bit_idx >= 0; bit_idx--) {
 			sb_idx_t idx = p_range->start_idx + bit_idx;
 			if (idx >= start_idx) {
 				continue;
@@ -1040,8 +1041,8 @@ static sb_idx_t expected_firstcleared(void)
 		return 0;
 	}
 
-	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
-		for (int bit_idx = 0; bit_idx
+	for (size_t range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+		for (ssize_t bit_idx = 0; bit_idx
 			< NUM(test_ranges[range_idx].expected); bit_idx++) {
 			if (!test_ranges[range_idx].expected[bit_idx]) {
 				return test_ranges[range_idx].start_idx + bit_idx;
@@ -1091,13 +1092,13 @@ static sb_idx_t expected_nextcleared(sb_idx_t start_idx)
 
 	// First cleared bit within a test range > start_idx is the next
 	// cleared bit.
-	for (unsigned int range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
+	for (size_t range_idx = 0; range_idx < NUM(test_ranges); range_idx++) {
 		struct test_range *p_range = &test_ranges[range_idx];
 
 		if (!range_supports_idx(range_idx, start_idx + 1)) {
 			continue;
 		}
-		for (int bit_idx = 0; bit_idx < NUM(p_range->expected);
+		for (ssize_t bit_idx = 0; bit_idx < NUM(p_range->expected);
 			bit_idx++) {
 			sb_idx_t idx = p_range->start_idx + bit_idx;
 
@@ -1119,11 +1120,12 @@ static sb_idx_t expected_nextcleared(sb_idx_t start_idx)
 
 static sb_idx_t expected_prevcleared(sb_idx_t start_idx)
 {
-	for (int range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
+	for (ssize_t range_idx = NUM(test_ranges) - 1; range_idx >= 0; range_idx--) {
 		struct test_range *p_range = &test_ranges[range_idx];
 
 		if (p_range->start_idx > start_idx) { continue; }
-		for (int bit_idx = NUM(p_range->expected) - 1; bit_idx >= 0; bit_idx--) {
+		for (ssize_t bit_idx = NUM(p_range->expected) - 1;
+			bit_idx >= 0; bit_idx--) {
 			sb_idx_t idx = p_range->start_idx + bit_idx;
 			if (idx >= start_idx) {
 				continue;
@@ -1156,7 +1158,7 @@ static sb_idx_t expected_nthset_rv(sb_idx_t nth_idx)
 	for (struct test_range *p_range = test_ranges;
 		p_range < test_ranges + NUM(test_ranges); p_range++) {
 		// For each bit in the current test range.
-		for (unsigned int bit_idx = 0; bit_idx < NUM(p_range->expected);
+		for (size_t bit_idx = 0; bit_idx < NUM(p_range->expected);
 			bit_idx++) {
 			if (p_range->expected[bit_idx]) {
 				if (num == nth_idx) {

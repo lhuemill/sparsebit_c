@@ -433,7 +433,7 @@ sb_pdynstr_t validate(sb_t *sb)
 	// Validate sb_nextset() and sb_nextcleared().
 	sb_idx_t idx_edge = ops_ranges_idx_first();
 	do {
-		for (int offset = -1; offset <= 1; offset++) {
+		for (ssize_t offset = -1; offset <= 1; offset++) {
 			sb_idx_t idx = idx_edge + offset;
 
 			sb_idx_t expected_nextset = ops_expected_nextset(idx);
@@ -462,7 +462,7 @@ sb_pdynstr_t validate(sb_t *sb)
 	// Validate sb_prevset() and sb_prevcleared().
 	idx_edge = ops_ranges_idx_first();
 	do {
-		for (int offset = -1; offset <= 1; offset++) {
+		for (ssize_t offset = -1; offset <= 1; offset++) {
 			sb_idx_t idx = idx_edge + offset;
 
 			sb_idx_t expected_prevset = ops_expected_prevset(idx);
@@ -644,7 +644,7 @@ static sb_idx_t ops_expected_nextset(sb_idx_t idx_start)
 {
 	sb_idx_t idx_edge = ops_ranges_idx_first();
 	do {
-		for (int offset = -1; offset <= 1; offset++) {
+		for (ssize_t offset = -1; offset <= 1; offset++) {
 			sb_idx_t idx = idx_edge + offset;
 			if ((offset > 0) && (idx < idx_edge)) {
 				continue;
@@ -680,7 +680,7 @@ static sb_idx_t ops_expected_nextcleared(sb_idx_t idx_start)
 
 	sb_idx_t idx_edge = ops_ranges_idx_first();
 	do {
-		for (int offset = -1; offset <= 1; offset++) {
+		for (ssize_t offset = -1; offset <= 1; offset++) {
 			sb_idx_t idx = idx_edge + offset;
 			if ((offset > 0) && (idx < idx_edge)) {
 				continue;
@@ -710,7 +710,7 @@ static sb_idx_t ops_expected_prevset(sb_idx_t idx_start)
 
 	sb_idx_t idx_edge = ops_ranges_idx_first();
 	do {
-		for (int offset = -1; offset <= 1; offset++) {
+		for (ssize_t offset = -1; offset <= 1; offset++) {
 			sb_idx_t idx = idx_edge + offset;
 			if ((offset > 0) && (idx < idx_edge)) {
 				continue;
@@ -742,7 +742,7 @@ static sb_idx_t ops_expected_prevcleared(sb_idx_t idx_start)
 
 	sb_idx_t idx_edge = ops_ranges_idx_first();
 	do {
-		for (int offset = -1; offset <= 1; offset++) {
+		for (ssize_t offset = -1; offset <= 1; offset++) {
 			sb_idx_t idx = idx_edge + offset;
 			if ((offset > 0) && (idx < idx_edge)) {
 				continue;

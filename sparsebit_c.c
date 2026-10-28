@@ -426,7 +426,7 @@ sb_idx_t sb_firstset(const sb_t* sb)
 {
 	if (sb->root != NULL) {
 		node_t *node = node_minimum(sb->root);
-		for (sb_idx_t n = 0; n < NUM_MASK_BITS; n++) {
+		for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 			if (node->mask & MASK_BIT_MASK(n)) {
 				return node->idx_start + n;
 			}
@@ -444,7 +444,7 @@ sb_idx_t sb_lastset(const sb_t* sb)
 		if (node->set_after > 0) {
 			return node->idx_start + NUM_MASK_BITS + node->set_after - 1;
 		}
-		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
+		for (ssize_t n = NUM_MASK_BITS - 1; n >= 0; n--) {
 			if (node->mask & MASK_BIT_MASK(n)) {
 				return node->idx_start + n;
 			}
@@ -470,7 +470,7 @@ sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
 		if ((idx - node->idx_start) < NUM_MASK_BITS) {
 			// Is there another set bit within the mask beyond the mask bit for the
 			// idx?
-			for (unsigned int n = (idx - node->idx_start) + 1;
+			for (size_t n = (idx - node->idx_start) + 1;
 				n < NUM_MASK_BITS; n++) {
 				if (node->mask & MASK_BIT_MASK(n)) {
 					return node->idx_start + n;
@@ -502,7 +502,7 @@ sb_idx_t sb_nextset(const sb_t* sb, sb_idx_t idx)
 	// The node pointer points to the first node after the node supporting
 	// idx.  The first mask bit set in node, will be for the first set bit
 	// after idx.
-	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+	for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 		if (node->mask & MASK_BIT_MASK(n)) {
 			return node->idx_start + n;
 		}
@@ -532,7 +532,7 @@ sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx)
 		// Idx is either the first set_after bit or within the node's mask.
 		// If present, return index of first set mask bit before the bit
 		// of idx.
-		for (int n = (idx - node->idx_start) - 1; n >= 0; n--) {
+		for (ssize_t n = (idx - node->idx_start) - 1; n >= 0; n--) {
 			if (node->mask & MASK_BIT_MASK(n)) {
 				return node->idx_start + n;
 			}
@@ -553,7 +553,7 @@ sb_idx_t sb_prevset(const sb_t* sb, sb_idx_t idx)
 	if (node->set_after) {
 		return node->idx_start + NUM_MASK_BITS + node->set_after - 1;
 	}
-	for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
+	for (ssize_t n = NUM_MASK_BITS - 1; n >= 0; n--) {
 		if (node->mask & MASK_BIT_MASK(n)) {
 			return node->idx_start + n;
 		}
@@ -598,7 +598,7 @@ sb_idx_t sb_nthset(const sb_t* sb, sb_idx_t nth)
 			node = node->right;
 		} else {
 			unsigned int num_mask_set = 0;
-			for (unsigned int mask_idx = 0; mask_idx < NUM_MASK_BITS; mask_idx++) {
+			for (size_t mask_idx = 0; mask_idx < NUM_MASK_BITS; mask_idx++) {
 				if (node->mask & MASK_BIT_MASK(mask_idx)) {
 					num_mask_set++;
 				}
@@ -648,7 +648,7 @@ int sb_clear(sb_t* sb, sb_idx_t idx)
 			assert(node->mask == 0);
 			assert((node->idx_start + NUM_MASK_BITS) > node->idx_start);
 			node->idx_start += NUM_MASK_BITS;
-			for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
+			for (size_t bit_idx = 0; (bit_idx < NUM_MASK_BITS)
 				&& (node->set_after > 0); bit_idx++) {
 				node->mask |= MASK_BIT_MASK(bit_idx);
 				node->set_after--;
@@ -777,7 +777,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 				assert((node_start->idx_start + NUM_MASK_BITS)
 					> node_start->idx_start);
 				node_start->idx_start += NUM_MASK_BITS;
-				for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
+				for (size_t bit_idx = 0; (bit_idx < NUM_MASK_BITS)
 					&& (node_start->set_after > 0); bit_idx++) {
 					node_start->mask |= MASK_BIT_MASK(bit_idx);
 					node_start->set_after--;
@@ -818,7 +818,7 @@ int sb_clearnum(sb_t* sb, sb_idx_t idx_start, sb_num_t num)
 				assert((node_end->idx_start + NUM_MASK_BITS)
 					> node_end->idx_start);
 				node_end->idx_start += NUM_MASK_BITS;
-				for (unsigned int bit_idx = 0; (bit_idx < NUM_MASK_BITS)
+				for (size_t bit_idx = 0; (bit_idx < NUM_MASK_BITS)
 					&& (node_end->set_after > 0); bit_idx++) {
 					node_end->mask |= MASK_BIT_MASK(bit_idx);
 					node_end->set_after--;
@@ -865,7 +865,7 @@ sb_idx_t sb_firstcleared(const sb_t* sb)
 			}
 
 			if (node->mask != ~(mask_t)0) {
-				for (sb_idx_t n = 0; n < NUM_MASK_BITS; n++) {
+				for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 					if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 						return node->idx_start + n;
 					}
@@ -896,7 +896,7 @@ sb_idx_t sb_nextcleared(const sb_t* sb, sb_idx_t idx)
 	} else {
 		// Node supports idx + 1.  Is there a cleared bit at or beyond the mask
 		// bit for idx + 1?
-		for (unsigned int n = (idx + 1) - node->idx_start;
+		for (size_t n = (idx + 1) - node->idx_start;
 			n < NUM_MASK_BITS; n++) {
 			if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 				return node->idx_start + n;
@@ -924,7 +924,7 @@ sb_idx_t sb_nextcleared(const sb_t* sb, sb_idx_t idx)
 		} else {
 			// Any cleared bits in the node?
 			if (node->mask != ~(mask_t)0) {
-				for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+				for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 					if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 						return node->idx_start + n;
 					}
@@ -962,7 +962,7 @@ sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 
 	// Node supports idx - 1.  Is there a cleared bit at or before the mask
 	// bit for idx - 1?
-	for (int n = (((idx - 1) - node->idx_start) >= NUM_MASK_BITS)
+	for (ssize_t n = (((idx - 1) - node->idx_start) >= NUM_MASK_BITS)
 		? NUM_MASK_BITS - 1
 		: (idx - 1) - node->idx_start; n >= 0; n--) {
 		if ((node->mask & MASK_BIT_MASK(n)) == 0) {
@@ -987,7 +987,7 @@ sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 			return node->idx_start - 1;
 		}
 
-		for (int n = NUM_MASK_BITS - 1; n >= 0; n--) {
+		for (ssize_t n = NUM_MASK_BITS - 1; n >= 0; n--) {
 			if ((prev->mask & MASK_BIT_MASK(n)) == 0) {
 				return prev->idx_start + n;
 			}
@@ -1015,7 +1015,7 @@ sb_idx_t sb_prevcleared(const sb_t* sb, sb_idx_t idx)
 		} else {
 			// Any cleared bits in the node?
 			if (node->mask != ~(mask_t)0) {
-				for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+				for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 					if ((node->mask & MASK_BIT_MASK(n)) == 0) {
 						return node->idx_start + n;
 					}
@@ -2033,7 +2033,7 @@ int sb_load(FILE *file, sb_t *sb)
 		switch (id) {
   	case SB_RCD_INC4_MASK8:
 			base_idx += record.inc4_mask8.amt;
-			for (unsigned int i = 0; i < 8; i++) {
+			for (size_t i = 0; i < 8; i++) {
 				if ((1ull << i) & record.inc4_mask8.mask) {
 					rv = sb_set(sb, base_idx + i);
 					if (rv != 0) { return rv; }
@@ -2044,7 +2044,7 @@ int sb_load(FILE *file, sb_t *sb)
 
   	case SB_RCD_INC4_MASK16:
 			base_idx += record.inc4_mask16.amt;
-			for (unsigned int i = 0; i < 16; i++) {
+			for (size_t i = 0; i < 16; i++) {
 				if ((1ull << i) & record.inc4_mask16.mask) {
 					rv = sb_set(sb, base_idx + i);
 				}
@@ -2054,7 +2054,7 @@ int sb_load(FILE *file, sb_t *sb)
 
   	case SB_RCD_INC4_MASK32:
 			base_idx += record.inc4_mask32.amt;
-			for (unsigned int i = 0; i < 32; i++) {
+			for (size_t i = 0; i < 32; i++) {
 				if ((1ull << i) & record.inc4_mask32.mask) {
 					rv = sb_set(sb, base_idx + i);
 				}
@@ -2064,7 +2064,7 @@ int sb_load(FILE *file, sb_t *sb)
 
   	case SB_RCD_INC4_MASK64:
 			base_idx += record.inc4_mask64.amt;
-			for (unsigned int i = 0; i < 64; i++) {
+			for (size_t i = 0; i < 64; i++) {
 				if ((1ull << i) & record.inc4_mask64.mask) {
 					rv = sb_set(sb, base_idx + i);
 				}
@@ -2078,7 +2078,7 @@ int sb_load(FILE *file, sb_t *sb)
 
 		case SB_RCD_INC12_MASK8:
 			base_idx += record.inc12_mask8.amt;
-			for (unsigned int i = 0; i < 8; i++) {
+			for (size_t i = 0; i < 8; i++) {
 				if ((1ull << i) & record.inc12_mask8.mask) {
 					rv = sb_set(sb, base_idx + i);
 				}
@@ -2088,7 +2088,7 @@ int sb_load(FILE *file, sb_t *sb)
 
 		case SB_RCD_INC12_MASK16:
 			base_idx += record.inc12_mask16.amt;
-			for (unsigned int i = 0; i < 16; i++) {
+			for (size_t i = 0; i < 16; i++) {
 				if ((1ull << i) & record.inc12_mask16.mask) {
 					rv = sb_set(sb, base_idx + i);
 				}
@@ -2150,7 +2150,7 @@ static node_t *node_split(sb_t *sb, node_t *node, sb_idx_t at)
 	second->set_after = first->set_after
 		- (second->idx_start - (first->idx_start + NUM_MASK_BITS));
 	first->set_after -= second->set_after;
-	for (unsigned int bit_idx = 0; (second->set_after > 0)
+	for (size_t bit_idx = 0; (second->set_after > 0)
 		&& (bit_idx < NUM_MASK_BITS); bit_idx++) {
 		second->mask |= MASK_BIT_MASK(bit_idx);
 		second->set_after--;
@@ -2200,7 +2200,7 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 	} else {
 		// Add next nodes contigously set leading mask bits
 		// to previous nodes set_after value.
-		for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+		for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 			if ((MASK_BIT_MASK(n) & next->mask) != 0) {
 				prev->set_after++;
 				adj_amt++;
@@ -2216,7 +2216,7 @@ static void node_merge(sb_t *sb, node_t *prev, node_t *next)
 		adj_amt = 0;
 
 		if (next->set_after > 0) {
-			for (unsigned int n = 0; (n < NUM_MASK_BITS)
+			for (size_t n = 0; (n < NUM_MASK_BITS)
 				&& (next->set_after > 0); n++) {
 				next->mask |= MASK_BIT_MASK(n);
 				next->set_after--;
@@ -2314,7 +2314,7 @@ static unsigned int num_set_mask(mask_t mask)
 	// TODO: Where available, use machine instruction that returns
 	// num set bits, otherwise use non-loop method described in the
 	// book Hacker's Delight.
-	for (unsigned int n = 0; n < NUM_MASK_BITS; n++) {
+	for (size_t n = 0; n < NUM_MASK_BITS; n++) {
 		if (mask & MASK_BIT_MASK(n)) {
 			num++;
 		}
@@ -2451,7 +2451,7 @@ static int node_write(FILE *file, node_t *node, sb_idx_t *base_idx)
 	union sb_rcd record;
 
 	int mask_first_set_idx = -1;
-	for (unsigned int n1 = 0; n1 < sizeof(node->mask) * CHAR_BIT; n1++) {
+	for (size_t n1 = 0; n1 < sizeof(node->mask) * CHAR_BIT; n1++) {
 		if ((node->mask & (1ull << n1))) {
  			if (mask_first_set_idx < 0) {
 				mask_first_set_idx = n1;
@@ -2601,9 +2601,9 @@ static void record_to_record_packed(const union sb_rcd *record,
 		record_packed->inc4_mask64.id_amt = SB_RCD_INC4_MASK64 & 0xf0;
 		record_packed->inc4_mask64.id_amt |= record->inc4_mask64.amt & 0x0f;
 
-		for (unsigned int i0 = 0; i0 < 8; i0++) {
+		for (size_t i0 = 0; i0 < 8; i0++) {
 			record_packed->inc4_mask64.mask[i0] = 0;
-			for (unsigned int i1 = 0; i1 < 8; i1++) {
+			for (size_t i1 = 0; i1 < 8; i1++) {
 				if (record->inc4_mask64.mask & MASK_BIT_MASK(i0 * 8 + i1)) {
 					record_packed->inc4_mask64.mask[i0] |= 0x80 >> i1;
 				}
@@ -2703,7 +2703,7 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 		record->inc4_mask8.id = SB_RCD_INC4_MASK8;
 		record->inc4_mask8.amt = record_packed->inc4_mask8.id_amt & 0x0f;
 		record->inc4_mask8.mask = 0;
-		for (unsigned int i1 = 0; i1 < 8; i1++) {
+		for (size_t i1 = 0; i1 < 8; i1++) {
 			if (record_packed->inc4_mask8.mask & (0x80 >> i1)) {
 				record->inc4_mask8.mask |= MASK_BIT_MASK(i1);
 			}
@@ -2715,9 +2715,9 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 		record->inc4_mask16.id = SB_RCD_INC4_MASK16;
 		record->inc4_mask16.amt = record_packed->inc4_mask16.id_amt & 0x0f;
 		record->inc4_mask16.mask = 0;
-		for (unsigned int i0 = 0; i0 < 2; i0++) {
+		for (size_t i0 = 0; i0 < 2; i0++) {
 			if (record_packed->inc4_mask16.mask[i0] == 0) { continue; }
-			for (unsigned int i1 = 0; i1 < 8; i1++) {
+			for (size_t i1 = 0; i1 < 8; i1++) {
 				if (record_packed->inc4_mask16.mask[i0] & (0x80 >> i1)) {
 					record->inc4_mask16.mask |= MASK_BIT_MASK(i0 * 8 + i1);
 				}
@@ -2730,9 +2730,9 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 		record->inc4_mask32.id = SB_RCD_INC4_MASK32;
 		record->inc4_mask32.amt = record_packed->inc4_mask32.id_amt & 0x0f;
 		record->inc4_mask32.mask = 0;
-		for (unsigned int i0 = 0; i0 < 4; i0++) {
+		for (size_t i0 = 0; i0 < 4; i0++) {
 			if (record_packed->inc4_mask32.mask[i0] == 0) { continue; }
-			for (unsigned int i1 = 0; i1 < 8; i1++) {
+			for (size_t i1 = 0; i1 < 8; i1++) {
 				if (record_packed->inc4_mask32.mask[i0] & (0x80 >> i1)) {
 					record->inc4_mask32.mask |= MASK_BIT_MASK(i0 * 8 + i1);
 				}
@@ -2745,9 +2745,9 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 		record->inc4_mask64.id = SB_RCD_INC4_MASK64;
 		record->inc4_mask64.amt = record_packed->inc4_mask64.id_amt & 0x0f;
 		record->inc4_mask64.mask = 0;
-		for (unsigned int i0 = 0; i0 < 8; i0++) {
+		for (size_t i0 = 0; i0 < 8; i0++) {
 			if (record_packed->inc4_mask64.mask[i0] == 0) { continue; }
-			for (unsigned int i1 = 0; i1 < 8; i1++) {
+			for (size_t i1 = 0; i1 < 8; i1++) {
 				if (record_packed->inc4_mask64.mask[i0] & (0x80 >> i1)) {
 					record->inc4_mask64.mask |= MASK_BIT_MASK(i0 * 8 + i1);
 				}
@@ -2767,7 +2767,7 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 		record->inc12_mask8.amt = (record_packed->inc12_mask8.id_amt0 & 0x0f)
 			<< (8 + record_packed->inc12_mask8.amt1);
 		record->inc12_mask8.mask = 0;
-		for (unsigned int i1 = 0; i1 < 8; i1++) {
+		for (size_t i1 = 0; i1 < 8; i1++) {
 			if (record_packed->inc12_mask8.mask & (0x80 >> i1)) {
 				record->inc12_mask8.mask |= MASK_BIT_MASK(i1);
 			}
@@ -2780,9 +2780,9 @@ static void record_packed_to_record(const union sb_rcd_packed *record_packed,
 			= (record_packed->inc12_mask16.id_amt0 & 0x0f)
 				<< ( 8 + record_packed->inc12_mask16.amt1);
 		record->inc12_mask16.mask = 0;
-		for (unsigned int i0 = 0; i0 < 2; i0++) {
+		for (size_t i0 = 0; i0 < 2; i0++) {
 			if (record_packed->inc12_mask16.mask[i0] == 0) { continue; }
-			for (unsigned int i1 = 0; i1 < 8; i1++) {
+			for (size_t i1 = 0; i1 < 8; i1++) {
 				if (record_packed->inc12_mask16.mask[i0] & (0x80 >> i1)) {
 					record->inc12_mask16.mask |= MASK_BIT_MASK(i0 * 8 + i1);
 				}
